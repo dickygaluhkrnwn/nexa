@@ -3,6 +3,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 
 export interface UserProfile {
   whatsappNumber?: string;
+  pinCode?: string; // Tambahan untuk fitur Brankas Rahasia
 }
 
 // Mengambil data profil user

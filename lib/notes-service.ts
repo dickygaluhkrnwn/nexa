@@ -19,6 +19,7 @@ export interface NoteData {
   tags: string[];
   isTodo: boolean;
   dueDate?: string | null;
+  isHidden?: boolean; // <-- Tambahan untuk fitur Brankas Rahasia
   userId: string;
 }
 

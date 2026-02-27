@@ -6,7 +6,11 @@ import { useAuth } from "@/lib/auth-context";
 import { getNote, updateNote } from "@/lib/notes-service";
 import { TiptapEditor } from "@/components/ui/tiptap-editor";
 import { Button } from "@/components/ui/button";
-import { Loader2, Save, ArrowLeft, Wand2, Tag as TagIcon, Calendar } from "lucide-react";
+import { 
+  Loader2, Save, ArrowLeft, Wand2, 
+  Tag as TagIcon, Calendar, Lock, Unlock, 
+  Sparkles, CalendarClock, X, Download, FileText, File, Printer
+} from "lucide-react";
 import Link from "next/link";
 
 export default function EditNotePage() {
@@ -17,15 +21,22 @@ export default function EditNotePage() {
   
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [tags, setTags] = useState<string[]>([]);
   
-  // State baru untuk fitur Tugas
+  // State Tags
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+  
+  // State Pengaturan Catatan
   const [isTodo, setIsTodo] = useState(false);
   const [dueDate, setDueDate] = useState("");
+  const [isHidden, setIsHidden] = useState(false);
 
+  // State Ekspor & Loading
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,8 +48,9 @@ export default function EditNotePage() {
           setTitle(noteData.title);
           setContent(noteData.content);
           setTags(noteData.tags || []);
-          setIsTodo(noteData.isTodo || false); // Memuat status tugas
-          setDueDate(noteData.dueDate || "");  // Memuat tenggat waktu
+          setIsTodo(noteData.isTodo || false);
+          setDueDate(noteData.dueDate || "");
+          setIsHidden((noteData as any).isHidden || false);
         } else {
           alert("Catatan tidak ditemukan atau Anda tidak memiliki akses.");
           router.push("/");
@@ -72,6 +84,121 @@ export default function EditNotePage() {
     );
   }
 
+  // Handle Manual Tags
+  const handleKeyDownTag = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && tagInput.trim() !== '') {
+      e.preventDefault();
+      const newTag = tagInput.trim().replace(/^#/, '');
+      if (!tags.includes(newTag)) {
+        setTags([...tags, newTag]);
+      }
+      setTagInput('');
+    }
+  };
+
+  const removeTag = (tagToRemove: string) => {
+    setTags(tags.filter(t => t !== tagToRemove));
+  };
+
+  // --- FUNGSI EXPORT (UNDUH DOC, TXT, PDF) ---
+  const handleExportTXT = () => {
+    const plainText = content.replace(/<[^>]+>/g, '\n').replace(/\n\s*\n/g, '\n\n').trim();
+    const textToExport = `JUDUL: ${title || 'Tanpa Judul'}\n\n${plainText}`;
+    
+    const blob = new Blob([textToExport], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title || "Catatan_Nexa"}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setShowExportMenu(false);
+  };
+
+  const handleExportDOC = () => {
+    const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Catatan Nexa</title></head><body>";
+    const footer = "</body></html>";
+    const sourceHTML = header + `<h1>${title || "Tanpa Judul"}</h1>` + content + footer;
+    
+    const blob = new Blob(['\ufeff', sourceHTML], { type: "application/msword" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title || "Catatan_Nexa"}.doc`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setShowExportMenu(false);
+  };
+
+  const handleExportPDF = () => {
+    setShowExportMenu(false);
+    
+    // Trik Iframe: Membuat jendela virtual untuk mem-print catatan bersih tanpa UI Aplikasi
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentWindow?.document;
+    if (!iframeDoc) return;
+
+    // Masukkan HTML murni dan CSS kustom ke dalam iframe
+    iframeDoc.open();
+    iframeDoc.write(`
+      <html>
+        <head>
+          <title>${title || "Catatan_Nexa"}</title>
+          <style>
+            body { 
+              font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+              padding: 40px; 
+              color: #111; 
+              line-height: 1.6; 
+            }
+            h1 { 
+              font-size: 32px; 
+              font-weight: 800; 
+              border-bottom: 2px solid #eaeaea; 
+              padding-bottom: 12px; 
+              margin-bottom: 24px; 
+              color: #000; 
+            }
+            p { margin-bottom: 1em; }
+            ul { list-style-type: disc; margin-left: 24px; margin-bottom: 1em; }
+            ol { list-style-type: decimal; margin-left: 24px; margin-bottom: 1em; }
+            li { margin-bottom: 0.5em; }
+            h2 { font-size: 24px; font-weight: 700; margin-top: 1.5em; margin-bottom: 0.5em; }
+            h3 { font-size: 20px; font-weight: 600; margin-top: 1.2em; margin-bottom: 0.5em; }
+            ul[data-type="taskList"] { list-style: none; margin-left: 0; padding-left: 0; }
+            li[data-type="taskItem"] { display: flex; align-items: flex-start; margin-bottom: 0.5em; }
+            li[data-type="taskItem"] > label { margin-right: 8px; margin-top: 4px; }
+          </style>
+        </head>
+        <body>
+          <h1>${title || 'Tanpa Judul'}</h1>
+          <div class="content">${content}</div>
+        </body>
+      </html>
+    `);
+    iframeDoc.close();
+
+    // Fokus ke iframe dan panggil dialog print browser
+    iframe.contentWindow?.focus();
+    setTimeout(() => {
+      iframe.contentWindow?.print();
+      // Hapus iframe setelah selesai print agar memori tetap bersih
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 1000);
+    }, 250);
+  };
+  // ---------------------------------------------
+
+  // Panggilan AI Utama
   const callAI = async (action: "auto-tag" | "summarize", textContent: string) => {
     try {
       const res = await fetch("/api/gemini", {
@@ -84,7 +211,7 @@ export default function EditNotePage() {
       return data.result;
     } catch (error: any) {
       console.error("AI Fetch Error:", error);
-      throw new Error(error.message || "Terjadi kesalahan koneksi ke server AI.");
+      throw new Error(error.message || "Terjadi kesalahan koneksi AI.");
     }
   };
 
@@ -104,6 +231,26 @@ export default function EditNotePage() {
     }
   };
 
+  const handleGenerateTags = async () => {
+    const plainText = content.replace(/<[^>]+>/g, ' ').trim();
+    if (!plainText && !title) return alert("Tulis sesuatu dulu agar AI bisa menebak tag-nya!");
+
+    setIsGeneratingTags(true);
+    try {
+      const result = await callAI("auto-tag", `Judul: ${title}\n\nIsi: ${plainText}`);
+      if (result) {
+        const newTags = result.split(',').map((t: string) => t.trim().replace(/^#/, '')).filter(Boolean);
+        const uniqueTags = Array.from(new Set([...tags, ...newTags]));
+        setTags(uniqueTags);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Gagal menebak tag.");
+    } finally {
+      setIsGeneratingTags(false);
+    }
+  };
+
   const handleUpdate = async () => {
     const plainText = content.replace(/<[^>]+>/g, ' ').trim();
     if (!title.trim() && !plainText) return; 
@@ -116,8 +263,7 @@ export default function EditNotePage() {
         try {
           const result = await callAI("auto-tag", `Judul: ${title}\n\nIsi: ${plainText}`);
           if (result) {
-            finalTags = result.split(',').map((t: string) => t.trim()).filter(Boolean);
-            setTags(finalTags);
+            finalTags = result.split(',').map((t: string) => t.trim().replace(/^#/, '')).filter(Boolean);
           }
         } catch (e) {
           console.error("Auto-tagging gagal...", e);
@@ -130,8 +276,10 @@ export default function EditNotePage() {
         tags: finalTags,
         isTodo: isTodo,
         dueDate: isTodo && dueDate ? dueDate : null,
-      });
-      router.push("/");
+        isHidden: isHidden,
+      } as any);
+      
+      router.push("/notes"); 
     } catch (error) {
       console.error("Gagal menyimpan:", error);
       alert("Gagal menyimpan perubahan.");
@@ -140,93 +288,129 @@ export default function EditNotePage() {
   };
 
   return (
-    <div className="p-4 pb-24 space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex items-center justify-between">
-        <Link href="/" className="p-2 -ml-2 rounded-full hover:bg-muted text-muted-foreground">
+    <div className="pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto">
+      
+      {/* Sticky Header Actions */}
+      <div className="sticky top-14 z-40 bg-background/80 backdrop-blur-md border-b border-border p-4 flex items-center justify-between">
+        <Link href="/notes" className="p-2 -ml-2 rounded-full hover:bg-muted text-muted-foreground transition-colors">
           <ArrowLeft className="w-5 h-5" />
         </Link>
-        <Button 
-          onClick={handleUpdate} 
-          disabled={isSaving || (!title.trim() && content === '<p></p>')}
-          className="rounded-full rounded-tr-none px-6"
-        >
-          {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-          {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
-        </Button>
-      </div>
+        
+        <div className="flex items-center gap-2">
+          {/* Menu Export / Download */}
+          <div className="relative">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="rounded-full px-4 border-border bg-card hover:bg-muted"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Unduh
+            </Button>
 
-      <div>
-        <input
-          type="text"
-          placeholder="Judul Catatan..."
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="w-full text-3xl font-bold bg-transparent border-none outline-none placeholder:text-muted-foreground/50 focus:ring-0"
-        />
-      </div>
-
-      {/* Opsi Jadikan Tugas (To-Do) */}
-      <div className="flex flex-wrap items-center gap-4 p-3 bg-muted/30 border border-border rounded-xl">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={isTodo}
-            onChange={(e) => setIsTodo(e.target.checked)}
-            className="w-4 h-4 rounded border-border text-primary focus:ring-primary/50 cursor-pointer"
-          />
-          <span className="text-sm font-medium">Jadikan Tugas</span>
-        </label>
-
-        {isTodo && (
-          <div className="flex items-center gap-2 border-l border-border pl-4 animate-in fade-in slide-in-from-left-2">
-            <Calendar className="w-4 h-4 text-muted-foreground" />
-            <input
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="text-sm bg-transparent border-none outline-none focus:ring-0 text-foreground"
-            />
+            {showExportMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)}></div>
+                <div className="absolute right-0 top-full mt-2 w-48 bg-card border border-border rounded-xl shadow-lg z-50 p-1 animate-in fade-in slide-in-from-top-2">
+                  <button onClick={handleExportPDF} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-muted font-medium text-red-500">
+                    <Printer className="w-4 h-4" /> Simpan PDF
+                  </button>
+                  <button onClick={handleExportDOC} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-muted font-medium text-blue-500">
+                    <FileText className="w-4 h-4" /> Export DOC Word
+                  </button>
+                  <button onClick={handleExportTXT} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-muted font-medium text-foreground">
+                    <File className="w-4 h-4" /> Teks Biasa (TXT)
+                  </button>
+                </div>
+              </>
+            )}
           </div>
-        )}
+
+          <Button 
+            onClick={handleUpdate} 
+            disabled={isSaving || (!title.trim() && content === '<p></p>')}
+            className="rounded-full px-6 bg-gradient-to-r from-primary to-purple-600 hover:opacity-90 shadow-md text-white border-0"
+          >
+            {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+            {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
+          </Button>
+        </div>
       </div>
 
-      {tags.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {tags.map((tag, i) => (
-            <span key={i} className="px-2.5 py-1 text-xs font-medium bg-muted text-muted-foreground rounded-md flex items-center">
-              <TagIcon className="w-3 h-3 mr-1" />
-              {tag}
+      <div className="p-4 space-y-6">
+        {/* Area Judul */}
+        <div>
+          <input
+            type="text"
+            placeholder="Judul Catatan..."
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="w-full text-4xl font-extrabold tracking-tight bg-transparent border-none outline-none placeholder:text-muted-foreground/30 focus:ring-0"
+          />
+        </div>
+
+        {/* Input & Display Tags */}
+        <div className="flex flex-wrap items-center gap-2">
+          {tags.map((tag) => (
+            <span key={tag} className="px-3 py-1.5 text-xs font-medium bg-primary/10 text-primary rounded-lg flex items-center gap-1.5 animate-in zoom-in-95">
+              <TagIcon className="w-3 h-3" /> {tag}
+              <button onClick={() => removeTag(tag)} className="hover:text-destructive transition-colors rounded-full p-0.5"><X className="w-3 h-3" /></button>
             </span>
           ))}
+          <input
+            type="text"
+            placeholder={tags.length === 0 ? "Ketik tag lalu Enter..." : "+ Tambah tag..."}
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            onKeyDown={handleKeyDownTag}
+            className="bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground focus:ring-0 min-w-[120px]"
+          />
         </div>
-      )}
 
-      <div className="flex items-center justify-between mt-6">
-        <h3 className="text-sm font-medium text-muted-foreground">Isi Catatan</h3>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={handleSummarize} 
-          disabled={isSummarizing || (!title.trim() && !content.replace(/<[^>]+>/g, '').trim())}
-          className="text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-900 hover:bg-purple-50 dark:hover:bg-purple-900/20"
-        >
-          {isSummarizing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Wand2 className="w-4 h-4 mr-2" />}
-          Ringkas dengan AI
-        </Button>
-      </div>
+        {/* Quick Actions */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/50">
+          <Button variant={isTodo ? "default" : "outline"} size="sm" onClick={() => setIsTodo(!isTodo)} className={`rounded-xl transition-all ${isTodo ? "bg-orange-500 hover:bg-orange-600 text-white border-orange-500" : "bg-card"}`}>
+            <CalendarClock className={`w-4 h-4 mr-2 ${isTodo ? "text-white" : "text-orange-500"}`} /> Jadikan Tugas
+          </Button>
+          <Button variant={isHidden ? "default" : "outline"} size="sm" onClick={() => setIsHidden(!isHidden)} className={`rounded-xl transition-all ${isHidden ? "bg-purple-600 hover:bg-purple-700 text-white border-purple-600" : "bg-card"}`}>
+            {isHidden ? <Lock className="w-4 h-4 mr-2 text-white" /> : <Unlock className="w-4 h-4 mr-2 text-purple-500" />} {isHidden ? "Masuk Brankas" : "Publik"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleGenerateTags} disabled={isGeneratingTags || (!title.trim() && !content.replace(/<[^>]+>/g, '').trim())} className="rounded-xl bg-card hover:bg-primary/5 text-primary border-primary/20">
+            {isGeneratingTags ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <TagIcon className="w-4 h-4 mr-2" />} Tebak Tag AI
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleSummarize} disabled={isSummarizing || (!title.trim() && !content.replace(/<[^>]+>/g, '').trim())} className="rounded-xl bg-card hover:bg-purple-500/5 text-purple-600 dark:text-purple-400 border-purple-500/20">
+            {isSummarizing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />} Ringkasan AI
+          </Button>
+        </div>
 
-      {aiSummary && (
-        <div className="p-4 rounded-xl bg-gradient-to-br from-cyan-500/10 to-purple-500/10 border border-purple-500/20 animate-in fade-in zoom-in-95">
-          <div className="flex items-center gap-2 mb-2 text-purple-600 dark:text-purple-400 font-bold text-sm">
-            <Wand2 className="w-4 h-4" />
-            <span>Ringkasan Cerdas AI</span>
+        {/* Date Picker */}
+        {isTodo && (
+          <div className="flex items-center gap-3 p-3 bg-orange-500/10 border border-orange-500/20 rounded-2xl animate-in fade-in slide-in-from-top-2">
+            <div className="p-2 bg-white/50 dark:bg-black/20 rounded-xl"><Calendar className="w-5 h-5 text-orange-600" /></div>
+            <div className="flex-1">
+              <p className="text-xs font-semibold text-orange-600 uppercase tracking-wider mb-0.5">Tenggat Waktu</p>
+              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full text-sm bg-transparent border-none outline-none focus:ring-0 text-foreground font-medium p-0" />
+            </div>
           </div>
-          <p className="text-sm text-foreground/80 leading-relaxed">{aiSummary}</p>
-        </div>
-      )}
+        )}
 
-      <div>
-        <TiptapEditor content={content} onChange={setContent} />
+        {/* AI Summary */}
+        {aiSummary && (
+          <div className="relative p-5 rounded-2xl bg-gradient-to-br from-cyan-500/10 via-purple-500/5 to-purple-500/10 border border-purple-500/20 animate-in fade-in zoom-in-95 shadow-sm">
+            <div className="absolute top-0 right-0 p-2">
+              <button onClick={() => setAiSummary(null)} className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full"><X className="w-4 h-4"/></button>
+            </div>
+            <div className="flex items-center gap-2 mb-3 text-purple-600 dark:text-purple-400 font-bold text-sm uppercase tracking-wider">
+              <Sparkles className="w-4 h-4" /><span>Ringkasan Cerdas AI</span>
+            </div>
+            <p className="text-sm text-foreground/80 leading-relaxed font-medium">{aiSummary}</p>
+          </div>
+        )}
+
+        {/* Rich Text Editor */}
+        <div className="pt-2">
+          <TiptapEditor content={content} onChange={setContent} />
+        </div>
       </div>
     </div>
   );

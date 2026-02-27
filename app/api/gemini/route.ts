@@ -20,24 +20,23 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    // Tambahan prompt dan context untuk fitur Chat RAG
-    const { action, content, prompt: userPrompt, context } = body;
+    // Tambahan variabel imageBase64 dan mimeType untuk OCR
+    const { action, content, prompt: userPrompt, context, imageBase64, mimeType } = body;
 
-    // Validasi input
-    if (action !== "chat" && !content) {
-      return NextResponse.json({ error: "Content is required" }, { status: 400 });
-    }
-    if (action === "chat" && !userPrompt) {
-      return NextResponse.json({ error: "Prompt is required for chat" }, { status: 400 });
+    if (!action) {
+      return NextResponse.json({ error: "Action is required" }, { status: 400 });
     }
 
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     let finalPrompt = "";
+    // Kita gunakan array agar bisa menampung teks biasa, ATAU teks + gambar
+    let generateParams: any[] = []; 
 
     // Logika berdasarkan aksi yang diminta
     switch (action) {
       case "auto-tag":
+        if (!content) return NextResponse.json({ error: "Content is required" }, { status: 400 });
         finalPrompt = `
           Baca catatan berikut dan berikan maksimal 3 tag/kategori yang paling relevan.
           Format balasan harus HANYA berupa kata-kata yang dipisahkan koma, tanpa simbol hashtag (#), tanpa penjelasan tambahan.
@@ -46,9 +45,11 @@ export async function POST(req: Request) {
           Catatan:
           "${content}"
         `;
+        generateParams = [finalPrompt];
         break;
 
       case "summarize":
+        if (!content) return NextResponse.json({ error: "Content is required" }, { status: 400 });
         finalPrompt = `
           Buatlah ringkasan singkat dan padat (maksimal 3 kalimat) dari catatan berikut.
           Fokus pada poin utama atau tindakan yang harus dilakukan.
@@ -56,9 +57,11 @@ export async function POST(req: Request) {
           Catatan:
           "${content}"
         `;
+        generateParams = [finalPrompt];
         break;
 
       case "chat":
+        if (!userPrompt) return NextResponse.json({ error: "Prompt is required for chat" }, { status: 400 });
         // Inilah inti dari RAG (Retrieval-Augmented Generation).
         // Kita menyuapkan data catatan user ke dalam otak AI.
         finalPrompt = `
@@ -73,6 +76,24 @@ export async function POST(req: Request) {
           Pertanyaan/Perintah Pengguna:
           "${userPrompt}"
         `;
+        generateParams = [finalPrompt];
+        break;
+
+      case "ocr":
+        if (!imageBase64) return NextResponse.json({ error: "Image Base64 is required for OCR" }, { status: 400 });
+        // Prompt khusus OCR untuk mengekstrak teks ke HTML
+        finalPrompt = `Ekstrak seluruh teks yang ada di gambar ini dengan sangat akurat. 
+        PENTING: Outputkan hasilnya dalam format HTML dasar (seperti <p>, <br>, <strong>, <ul>, <li>) agar bisa langsung dimasukkan ke Text Editor.
+        JANGAN sertakan awalan \`\`\`html atau akhiran \`\`\`. Hanya berikan elemen HTML-nya saja.`;
+        
+        const imagePart = {
+          inlineData: {
+            data: imageBase64,
+            mimeType: mimeType || "image/jpeg",
+          },
+        };
+        // Masukkan prompt teks dan objek gambar sekaligus
+        generateParams = [finalPrompt, imagePart];
         break;
 
       default:
@@ -82,7 +103,8 @@ export async function POST(req: Request) {
         );
     }
 
-    const result = await model.generateContent(finalPrompt);
+    // Eksekusi model dengan parameter yang sudah disiapkan
+    const result = await model.generateContent(generateParams);
     const responseText = result.response.text();
 
     return NextResponse.json({ result: responseText.trim() });
