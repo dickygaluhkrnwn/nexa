@@ -28,7 +28,8 @@ export function TiptapEditor({ content, onChange }: TiptapEditorProps) {
     },
     editorProps: {
       attributes: {
-        class: 'prose prose-sm sm:prose-base dark:prose-invert focus:outline-none min-h-[200px] w-full max-w-none p-4',
+        // Hapus class prose bawaan karena kita akan menggunakan custom CSS di bawah
+        class: 'tiptap-content focus:outline-none min-h-[250px] w-full p-4',
       },
     },
   });
@@ -39,6 +40,27 @@ export function TiptapEditor({ content, onChange }: TiptapEditorProps) {
 
   return (
     <div className="border border-border rounded-xl overflow-hidden bg-background focus-within:ring-2 focus-within:ring-primary/50 transition-all">
+      {/* Custom CSS untuk Tiptap
+        Ini mencegah Tailwind mereset list style bawaan HTML sehingga bullet dan angka muncul 
+      */}
+      <style dangerouslySetInnerHTML={{__html: `
+        .tiptap-content { outline: none; }
+        .tiptap-content p { margin-bottom: 0.75em; line-height: 1.6; }
+        .tiptap-content h2 { font-size: 1.5rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 0.75rem; line-height: 1.3; }
+        .tiptap-content ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+        .tiptap-content ol { list-style-type: decimal; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+        .tiptap-content li { margin-bottom: 0.25rem; }
+        .tiptap-content strong { font-weight: 700; }
+        .tiptap-content em { font-style: italic; }
+        
+        /* Styling khusus untuk To-Do List (Checklist) */
+        .tiptap-content ul[data-type="taskList"] { list-style: none; padding-left: 0; }
+        .tiptap-content ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem; }
+        .tiptap-content ul[data-type="taskList"] li > label { margin-top: 0.2rem; user-select: none; cursor: pointer; }
+        .tiptap-content ul[data-type="taskList"] li > label input[type="checkbox"] { accent-color: var(--primary); transform: scale(1.1); }
+        .tiptap-content ul[data-type="taskList"] li > div { flex: 1; }
+      `}} />
+
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-1 p-2 border-b border-border bg-muted/30">
         <button

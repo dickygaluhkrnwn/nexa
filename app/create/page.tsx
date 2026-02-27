@@ -8,9 +8,9 @@ import { TiptapEditor } from "@/components/ui/tiptap-editor";
 import { Button } from "@/components/ui/button";
 import { 
   Loader2, Save, ArrowLeft, Wand2, 
-  Tag as TagIcon, Calendar, Lock, Unlock, 
-  Sparkles, CalendarClock, X, Download, FileText, File, Printer,
-  Camera, Image as ImageIcon, Mic, AlertCircle // Tambahan icon AlertCircle
+  Tag as TagIcon, Lock, Unlock, 
+  Sparkles, X, Download, FileText, File, Printer,
+  Camera, Image as ImageIcon, Mic, AlertCircle 
 } from "lucide-react";
 import Link from "next/link";
 
@@ -25,9 +25,7 @@ export default function CreateNotePage() {
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   
-  // State Pengaturan Catatan
-  const [isTodo, setIsTodo] = useState(false);
-  const [dueDate, setDueDate] = useState("");
+  // State Privasi
   const [isHidden, setIsHidden] = useState(false); 
   
   // State Ekspor, Loading & Editor Key
@@ -49,7 +47,7 @@ export default function CreateNotePage() {
     isOpen: boolean;
     title: string;
     message: string;
-    type: "alert" | "confirm";
+    type: "alert" | "confirm" | "quota"; // Tambah tipe quota
     onConfirm?: () => void;
   }>({
     isOpen: false,
@@ -58,12 +56,22 @@ export default function CreateNotePage() {
     type: "alert"
   });
 
-  const showAlert = (title: string, message: string) => {
-    setDialog({ isOpen: true, title, message, type: "alert" });
+  const showAlert = (title: string, message: string, onConfirm?: () => void) => {
+    setDialog({ isOpen: true, title, message, type: "alert", onConfirm });
   };
 
   const showConfirm = (title: string, message: string, onConfirm: () => void) => {
     setDialog({ isOpen: true, title, message, type: "confirm", onConfirm });
+  };
+
+  // Fungsi khusus untuk menampilkan modal Limit Kuota
+  const showQuotaAlert = () => {
+    setDialog({ 
+      isOpen: true, 
+      title: "Limit AI Harian Tercapai 🚀", 
+      message: "Nexa menggunakan sistem AI gratis yang memiliki batas harian. Bantu kami meng-upgrade server agar fitur AI ini bisa terus dinikmati tanpa batas!", 
+      type: "quota" 
+    });
   };
   // ---------------------------------
 
@@ -174,9 +182,19 @@ export default function CreateNotePage() {
         body: JSON.stringify(payload)
       });
       const data = await res.json().catch(() => ({})); 
-      if (!res.ok) throw new Error(data.error || "Gagal memanggil AI.");
+      
+      if (!res.ok) {
+        // Cek secara spesifik jika terjadi error Kuota / 429
+        if (res.status === 429 || data.error?.toLowerCase().includes("quota") || data.error?.includes("429")) {
+          throw new Error("QUOTA_EXCEEDED");
+        }
+        throw new Error(data.error || "Gagal memanggil AI.");
+      }
       return data.result;
     } catch (error: any) {
+      // PERBAIKAN: Lempar error QUOTA_EXCEEDED sebelum console.error agar tidak muncul layar error merah
+      if (error.message === "QUOTA_EXCEEDED") throw error;
+      
       console.error("AI Fetch Error:", error);
       throw new Error(error.message || "Terjadi kesalahan koneksi AI.");
     }
@@ -194,7 +212,11 @@ export default function CreateNotePage() {
       const result = await callAI({ action: "summarize", content: `Judul: ${title}\n\nIsi: ${plainText}` });
       setAiSummary(result);
     } catch (error: any) {
-      showAlert("Gagal AI", `Gagal merangkum: ${error.message}`);
+      if (error.message === "QUOTA_EXCEEDED") {
+        showQuotaAlert();
+      } else {
+        showAlert("Gagal AI", `Gagal merangkum: ${error.message}`);
+      }
     } finally {
       setIsSummarizing(false);
     }
@@ -212,10 +234,15 @@ export default function CreateNotePage() {
       const result = await callAI({ action: "auto-tag", content: `Judul: ${title}\n\nIsi: ${plainText}` });
       if (result) {
         const newTags = result.split(',').map((t: string) => t.trim().replace(/^#/, '')).filter(Boolean);
-        setTags(Array.from(new Set([...tags, ...newTags])));
+        const uniqueTags = Array.from(new Set([...tags, ...newTags]));
+        setTags(uniqueTags);
       }
     } catch (error: any) {
-      showAlert("Gagal AI", "Gagal menebak tag. Coba lagi nanti.");
+      if (error.message === "QUOTA_EXCEEDED") {
+        showQuotaAlert();
+      } else {
+        showAlert("Gagal AI", "Gagal menebak tag. Coba lagi nanti.");
+      }
     } finally {
       setIsGeneratingTags(false);
     }
@@ -249,11 +276,14 @@ export default function CreateNotePage() {
           } else {
             setContent((prev) => prev + (prev ? "<br><br>" : "") + cleanHtml);
             setEditorKey(prev => prev + 1); // FORCE TIPTAP UPDATE
-            if (!title.trim()) setTitle("Catatan dari Gambar");
           }
 
         } catch (apiError: any) {
-          showAlert("Gagal Scan", `Gagal memproses gambar: ${apiError.message}`);
+          if (apiError.message === "QUOTA_EXCEEDED") {
+            showQuotaAlert();
+          } else {
+            showAlert("Gagal Scan", `Gagal memproses gambar: ${apiError.message}`);
+          }
         } finally {
           setIsScanning(false);
         }
@@ -334,8 +364,11 @@ export default function CreateNotePage() {
           if (result) {
             finalTags = result.split(',').map((t: string) => t.trim().replace(/^#/, '')).filter(Boolean);
           }
-        } catch (e) {
-          console.error("Auto-tagging gagal...", e);
+        } catch (e: any) {
+          // PERBAIKAN: Sembunyikan console.error jika errornya karena kuota
+          if (e.message !== "QUOTA_EXCEEDED") {
+            console.error("Auto-tagging gagal...", e);
+          }
         }
       }
 
@@ -343,11 +376,11 @@ export default function CreateNotePage() {
         title: title || "Tanpa Judul",
         content: content,
         tags: finalTags,
-        isTodo: isTodo,
-        dueDate: isTodo && dueDate ? dueDate : null,
+        isTodo: false, 
+        dueDate: null, 
         isHidden: isHidden,
         userId: user.uid,
-      });
+      } as any);
       
       router.push("/");
     } catch (error) {
@@ -358,41 +391,26 @@ export default function CreateNotePage() {
   };
 
   return (
-    <div className="pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto">
+    <div className="pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto">
       
-      <div className="sticky top-14 z-40 bg-background/80 backdrop-blur-md border-b border-border p-4 flex items-center justify-between print:hidden">
-        <Link href="/" className="p-2 -ml-2 rounded-full hover:bg-muted text-muted-foreground transition-colors">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Button variant="outline" onClick={() => setShowExportMenu(!showExportMenu)} className="rounded-full px-4 border-border bg-card hover:bg-muted">
-              <Download className="w-4 h-4 mr-2" /> Unduh
-            </Button>
-            {showExportMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)}></div>
-                <div className="absolute right-0 top-full mt-2 w-48 bg-card border border-border rounded-xl shadow-lg z-50 p-1 animate-in fade-in slide-in-from-top-2">
-                  <button onClick={handleExportPDF} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-muted font-medium text-red-500"><Printer className="w-4 h-4" /> Simpan PDF</button>
-                  <button onClick={handleExportDOC} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-muted font-medium text-blue-500"><FileText className="w-4 h-4" /> Export DOC Word</button>
-                  <button onClick={handleExportTXT} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-muted font-medium text-foreground"><File className="w-4 h-4" /> Teks Biasa (TXT)</button>
-                </div>
-              </>
-            )}
-          </div>
-
-          <Button onClick={handleSave} disabled={isSaving || (!title.trim() && content === '<p></p>')} className="rounded-full px-6 bg-gradient-to-r from-primary to-purple-600 hover:opacity-90 shadow-md text-white border-0">
-            {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />} {isSaving ? "Menyimpan..." : "Simpan"}
-          </Button>
+      {/* Header Statis */}
+      <div className="p-4 flex items-center justify-between print:hidden">
+        <div className="flex items-center gap-3">
+          <Link href="/" className="p-2 -ml-2 rounded-full hover:bg-muted text-muted-foreground transition-colors">
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Buat Catatan</span>
         </div>
       </div>
 
-      <div className="p-4 space-y-6 print:p-0 print:space-y-4">
+      <div className="px-4 space-y-4 print:p-0">
+        
+        {/* Area Judul */}
         <div>
           <input type="text" placeholder="Judul Catatan..." value={title} onChange={(e) => setTitle(e.target.value)} className="w-full text-4xl font-extrabold tracking-tight bg-transparent border-none outline-none placeholder:text-muted-foreground/30 focus:ring-0 print:text-black print:p-0" autoFocus />
         </div>
 
+        {/* Area Tags */}
         <div className="flex flex-wrap items-center gap-2 print:hidden">
           {tags.map((tag) => (
             <span key={tag} className="px-3 py-1.5 text-xs font-medium bg-primary/10 text-primary rounded-lg flex items-center gap-1.5 animate-in zoom-in-95">
@@ -403,55 +421,61 @@ export default function CreateNotePage() {
           <input type="text" placeholder={tags.length === 0 ? "Ketik tag lalu Enter..." : "+ Tambah tag..."} value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={handleKeyDownTag} className="bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground focus:ring-0 min-w-[120px]" />
         </div>
 
-        {/* --- MENU QUICK ACTIONS (Scrollable Secara Horizontal) --- */}
-        <div className="flex items-center gap-2 pt-2 border-t border-border/50 overflow-x-auto pb-2 scrollbar-hide print:hidden">
-          
-          {/* Input Hidden untuk Kamera & Galeri */}
-          <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} onChange={handleImageUpload} className="hidden" />
-          <input type="file" accept="image/*" ref={galleryInputRef} onChange={handleImageUpload} className="hidden" />
-          
-          <Button variant="outline" size="sm" onClick={() => cameraInputRef.current?.click()} disabled={isScanning} className="rounded-xl whitespace-nowrap bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
-            {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Camera className="w-4 h-4 mr-2" />} Kamera
-          </Button>
-
-          <Button variant="outline" size="sm" onClick={() => galleryInputRef.current?.click()} disabled={isScanning} className="rounded-xl whitespace-nowrap bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20">
-            {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ImageIcon className="w-4 h-4 mr-2" />} Galeri
-          </Button>
-
-          <Button variant="outline" size="sm" onClick={handleVoiceRecord} disabled={isRecording} className={`rounded-xl whitespace-nowrap ${isRecording ? 'bg-red-500 text-white animate-pulse border-red-500' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'}`}>
-            <Mic className={`w-4 h-4 mr-2 ${isRecording ? 'animate-pulse' : ''}`} /> 
-            {isRecording ? "Mendengarkan..." : "Suara"}
+        {/* --- TOOLBAR 1: Privasi & Input Media --- */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 print:hidden">
+          <Button 
+            variant={isHidden ? "default" : "outline"} 
+            size="sm" 
+            onClick={() => setIsHidden(!isHidden)} 
+            className={`rounded-xl transition-all ${isHidden ? "bg-purple-600 hover:bg-purple-700 text-white border-purple-600" : "bg-card text-muted-foreground hover:bg-purple-500/10 hover:text-purple-500 border-border"}`}
+          >
+            {isHidden ? <Lock className="w-4 h-4 mr-2 text-white" /> : <Unlock className="w-4 h-4 mr-2" />} 
+            {isHidden ? "Masuk Brankas" : "Catatan Publik"}
           </Button>
 
           <div className="w-px h-6 bg-border mx-1 shrink-0"></div>
 
-          <Button variant={isTodo ? "default" : "outline"} size="sm" onClick={() => setIsTodo(!isTodo)} className={`rounded-xl whitespace-nowrap transition-all ${isTodo ? "bg-orange-500 hover:bg-orange-600 text-white border-orange-500" : "bg-card"}`}>
-            <CalendarClock className={`w-4 h-4 mr-2 ${isTodo ? "text-white" : "text-orange-500"}`} /> Jadikan Tugas
-          </Button>
+          {/* Input Hidden untuk Kamera & Galeri */}
+          <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} onChange={handleImageUpload} className="hidden" />
+          <input type="file" accept="image/*" ref={galleryInputRef} onChange={handleImageUpload} className="hidden" />
           
-          <Button variant={isHidden ? "default" : "outline"} size="sm" onClick={() => setIsHidden(!isHidden)} className={`rounded-xl whitespace-nowrap transition-all ${isHidden ? "bg-purple-600 hover:bg-purple-700 text-white border-purple-600" : "bg-card"}`}>
-            {isHidden ? <Lock className="w-4 h-4 mr-2 text-white" /> : <Unlock className="w-4 h-4 mr-2 text-purple-500" />} {isHidden ? "Brankas" : "Publik"}
+          <Button variant="outline" size="sm" onClick={() => cameraInputRef.current?.click()} disabled={isScanning} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 border-border">
+            {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Camera className="w-4 h-4 mr-2" />} Kamera
           </Button>
-          
-          <Button variant="outline" size="sm" onClick={handleGenerateTags} disabled={isGeneratingTags || (!title.trim() && !content.replace(/<[^>]+>/g, '').trim())} className="rounded-xl whitespace-nowrap bg-card hover:bg-primary/5 text-primary border-primary/20">
-            {isGeneratingTags ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <TagIcon className="w-4 h-4 mr-2" />} Tag AI
+
+          <Button variant="outline" size="sm" onClick={() => galleryInputRef.current?.click()} disabled={isScanning} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-indigo-500 hover:bg-indigo-500/10 border-border">
+            {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ImageIcon className="w-4 h-4 mr-2" />} Galeri
           </Button>
-          
-          <Button variant="outline" size="sm" onClick={handleSummarize} disabled={isSummarizing || (!title.trim() && !content.replace(/<[^>]+>/g, '').trim())} className="rounded-xl whitespace-nowrap bg-card hover:bg-purple-500/5 text-purple-600 dark:text-purple-400 border-purple-500/20">
-            {isSummarizing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />} Ringkas AI
+
+          <Button variant="outline" size="sm" onClick={handleVoiceRecord} disabled={isRecording} className={`rounded-xl whitespace-nowrap transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse border-red-500' : 'bg-card text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 border-border'}`}>
+            <Mic className={`w-4 h-4 mr-2 ${isRecording ? 'animate-pulse' : ''}`} /> 
+            {isRecording ? "Mendengarkan..." : "Suara"}
           </Button>
         </div>
 
-        {isTodo && (
-          <div className="flex items-center gap-3 p-3 bg-orange-500/10 border border-orange-500/20 rounded-2xl animate-in fade-in slide-in-from-top-2 print:hidden">
-            <div className="p-2 bg-white/50 dark:bg-black/20 rounded-xl"><Calendar className="w-5 h-5 text-orange-600" /></div>
-            <div className="flex-1">
-              <p className="text-xs font-semibold text-orange-600 uppercase tracking-wider mb-0.5">Tenggat Waktu (Opsional)</p>
-              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full text-sm bg-transparent border-none outline-none focus:ring-0 text-foreground font-medium p-0" />
+        {/* --- TOOLBAR 2: Asisten AI (Banner Menonjol) --- */}
+        <div className="bg-gradient-to-r from-primary/5 via-purple-500/5 to-cyan-500/5 border border-primary/20 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 print:hidden">
+          <div className="flex items-center gap-2.5 px-1">
+            <div className="p-1.5 bg-primary/20 rounded-lg text-primary shadow-sm">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-foreground">Nexa AI Assistant</p>
+              <p className="text-[10px] text-muted-foreground">Bantu rapikan catatanmu</p>
             </div>
           </div>
-        )}
+          
+          <div className="flex gap-2 w-full sm:w-auto">
+            <Button variant="outline" size="sm" onClick={handleGenerateTags} disabled={isGeneratingTags || (!title.trim() && !content.replace(/<[^>]+>/g, '').trim())} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-primary/10 text-primary border-primary/20 shadow-sm">
+              {isGeneratingTags ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <TagIcon className="w-3 h-3 mr-1.5" />} Tebak Tag
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleSummarize} disabled={isSummarizing || (!title.trim() && !content.replace(/<[^>]+>/g, '').trim())} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 shadow-sm">
+              {isSummarizing ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Wand2 className="w-3 h-3 mr-1.5" />} Ringkas Isi
+            </Button>
+          </div>
+        </div>
 
+        {/* Tampilan Hasil Ringkasan AI */}
         {aiSummary && (
           <div className="relative p-5 rounded-2xl bg-gradient-to-br from-cyan-500/10 via-purple-500/5 to-purple-500/10 border border-purple-500/20 animate-in fade-in zoom-in-95 shadow-sm print:hidden">
             <div className="absolute top-0 right-0 p-2">
@@ -464,19 +488,45 @@ export default function CreateNotePage() {
           </div>
         )}
 
+        {/* Editor Teks */}
         <div className="pt-2 print:text-black">
-          {/* Key diberikan agar Tiptap me-render ulang saat state editorKey berubah dari luar (OCR/Suara) */}
           <TiptapEditor key={editorKey} content={content} onChange={setContent} />
         </div>
       </div>
 
-      {/* CUSTOM DIALOG MODAL (Menggantikan fungsi alert/confirm bawaan browser) */}
+      {/* FLOATING BOTTOM ACTION BAR (Unduh & Simpan) */}
+      <div className="fixed bottom-20 md:bottom-8 left-0 right-0 z-40 px-4 pointer-events-none print:hidden">
+        <div className="max-w-2xl mx-auto flex items-center justify-between pointer-events-auto">
+          {/* Menu Export / Download */}
+          <div className="relative">
+            <Button variant="outline" onClick={() => setShowExportMenu(!showExportMenu)} className="rounded-full px-4 border-border bg-card/95 backdrop-blur shadow-xl hover:bg-muted">
+              <Download className="w-4 h-4 mr-2" /> Unduh
+            </Button>
+            {showExportMenu && (
+              <>
+                <div className="fixed inset-0 z-40 cursor-default" onClick={() => setShowExportMenu(false)}></div>
+                <div className="absolute left-0 bottom-full mb-3 w-48 bg-card border border-border rounded-2xl shadow-2xl z-50 p-1.5 animate-in fade-in slide-in-from-bottom-2">
+                  <button onClick={handleExportPDF} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl hover:bg-muted font-medium text-red-500 transition-colors"><Printer className="w-4 h-4" /> Simpan PDF</button>
+                  <button onClick={handleExportDOC} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl hover:bg-muted font-medium text-blue-500 transition-colors"><FileText className="w-4 h-4" /> Export DOC Word</button>
+                  <button onClick={handleExportTXT} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl hover:bg-muted font-medium text-foreground transition-colors"><File className="w-4 h-4" /> Teks Biasa (TXT)</button>
+                </div>
+              </>
+            )}
+          </div>
+
+          <Button onClick={handleSave} disabled={isSaving || (!title.trim() && content === '<p></p>')} className="rounded-full px-6 py-6 bg-gradient-to-r from-primary to-purple-600 hover:opacity-90 shadow-xl text-white font-bold border-0">
+            {isSaving ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Save className="w-5 h-5 mr-2" />} {isSaving ? "Menyimpan..." : "Simpan Catatan"}
+          </Button>
+        </div>
+      </div>
+
+      {/* CUSTOM DIALOG MODAL DENGAN QUOTA ALERT */}
       {dialog.isOpen && (
         <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 text-center flex flex-col items-center">
+          <div className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 text-center flex flex-col items-center pointer-events-auto">
             
-            <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 ${dialog.type === 'confirm' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>
-              <AlertCircle className="w-7 h-7" />
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 ${dialog.type === 'confirm' ? 'bg-destructive/10 text-destructive' : dialog.type === 'quota' ? 'bg-orange-500/10 text-orange-500' : 'bg-primary/10 text-primary'}`}>
+              {dialog.type === 'quota' ? <Sparkles className="w-7 h-7" /> : <AlertCircle className="w-7 h-7" />}
             </div>
             
             <h3 className="font-bold text-xl mb-2">{dialog.title}</h3>
@@ -492,21 +542,59 @@ export default function CreateNotePage() {
                   Batal
                 </Button>
               )}
-              <Button 
-                className={`flex-1 rounded-xl h-11 text-white shadow-md ${dialog.type === 'confirm' ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'}`} 
-                onClick={() => {
-                  if (dialog.type === "confirm" && dialog.onConfirm) {
-                    dialog.onConfirm();
-                  }
-                  setDialog(prev => ({ ...prev, isOpen: false }));
-                }}
-              >
-                {dialog.type === "confirm" ? "Ya, Lanjutkan" : "Oke, Mengerti"}
-              </Button>
+              {dialog.type === "confirm" && (
+                <Button 
+                  className="flex-1 rounded-xl h-11 text-white shadow-md bg-destructive hover:bg-destructive/90" 
+                  onClick={() => {
+                    if (dialog.onConfirm) {
+                      dialog.onConfirm();
+                    }
+                    setDialog(prev => ({ ...prev, isOpen: false }));
+                  }}
+                >
+                  Ya, Lanjutkan
+                </Button>
+              )}
+
+              {dialog.type === "alert" && (
+                <Button 
+                  className="flex-1 rounded-xl h-11 text-white shadow-md bg-primary hover:bg-primary/90" 
+                  onClick={() => {
+                    if (dialog.onConfirm) {
+                      dialog.onConfirm();
+                    }
+                    setDialog(prev => ({ ...prev, isOpen: false }));
+                  }}
+                >
+                  Oke, Mengerti
+                </Button>
+              )}
+
+              {dialog.type === "quota" && (
+                <>
+                  <Button 
+                    variant="outline" 
+                    className="flex-1 rounded-xl h-11 border-border bg-transparent" 
+                    onClick={() => setDialog(prev => ({ ...prev, isOpen: false }))}
+                  >
+                    Nanti Saja
+                  </Button>
+                  <Button 
+                    className="flex-1 rounded-xl h-11 text-white shadow-md bg-gradient-to-r from-orange-500 to-red-500 hover:opacity-90 border-0" 
+                    onClick={() => {
+                      router.push("/funding");
+                      setDialog(prev => ({ ...prev, isOpen: false }));
+                    }}
+                  >
+                    💖 Dukung Nexa
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }

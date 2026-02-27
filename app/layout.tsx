@@ -6,6 +6,7 @@ import { Header } from "@/components/layout/header";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/lib/auth-context";
 import { ChatWidget } from "@/components/ui/chat-widget";
+import { Analytics } from "@vercel/analytics/next"; // Import Vercel Analytics
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -47,6 +48,9 @@ export default function RootLayout({
             <BottomNav />
           </AuthProvider>
         </ThemeProvider>
+        
+        {/* Komponen Analytics diletakkan di dalam body agar memantau seluruh halaman */}
+        <Analytics />
       </body>
     </html>
   );

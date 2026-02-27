@@ -19,7 +19,10 @@ export interface NoteData {
   tags: string[];
   isTodo: boolean;
   dueDate?: string | null;
+  dueTime?: string | null; // <-- Tambahan untuk Waktu (Jam/Menit)
+  recurrence?: string; // 'none' | 'daily' | 'weekly' | 'monthly'
   isHidden?: boolean; // <-- Tambahan untuk fitur Brankas Rahasia
+  isPinned?: boolean; // <-- Tambahan untuk fitur Pin Catatan/Tugas
   userId: string;
 }
 

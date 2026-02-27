@@ -5,6 +5,7 @@ import { MessageCircle, X, Send, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 import { getUserNotes, NoteData } from "@/lib/notes-service";
+import { usePathname } from "next/navigation"; // Tambahan import
 
 interface Message {
   role: "user" | "ai";
@@ -13,6 +14,7 @@ interface Message {
 
 export function ChatWidget() {
   const { user } = useAuth();
+  const pathname = usePathname(); // Inisialisasi pathname
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     { role: "ai", content: "Halo! Aku Nexa. Ada yang mau ditanyakan soal catatanmu hari ini?" }
@@ -25,7 +27,13 @@ export function ChatWidget() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  if (!user) return null;
+  // SEMBUNYIKAN WIDGET JIKA:
+  // 1. User belum login
+  // 2. Berada di halaman /create
+  // 3. Berada di halaman /edit
+  if (!user || pathname.startsWith('/create') || pathname.startsWith('/edit')) {
+    return null;
+  }
 
   // Fungsi simpel untuk me-render Markdown dasar (Bold dan Italic) menjadi HTML
   const formatMessageContent = (text: string) => {

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { Home, FileText, Plus, CheckSquare, User, Camera, Image as ImageIcon, Mic, Type } from "lucide-react";
-import { cn } from "@/lib/utils"; // utility dari shadcn
+import { cn } from "@/lib/utils";
 
 export function BottomNav() {
   const pathname = usePathname();
@@ -21,31 +21,37 @@ export function BottomNav() {
 
   const handleCreateOption = (mode: string) => {
     setIsOpen(false);
-    // Redirect dengan URL parameter pintar
-    router.push(mode === 'text' ? '/create' : `/create?mode=${mode}`);
+    if (mode === 'todo') {
+      router.push('/create-todo');
+    } else {
+      router.push(mode === 'text' ? '/create' : `/create?mode=${mode}`);
+    }
   };
 
   return (
-    <div className="fixed bottom-0 left-0 z-50 w-full h-16 bg-background border-t border-border md:hidden">
+    <div className="fixed bottom-0 left-0 z-50 w-full h-16 bg-background border-t border-border md:hidden print:hidden">
       <div className="grid h-full max-w-lg grid-cols-5 mx-auto font-medium">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;
 
-          // Desain spesial untuk tombol Create (tengah)
           if (item.isMain) {
             return (
               <div key="create-btn" className="flex justify-center items-center relative">
                 {isOpen && (
                   <>
-                    {/* Backdrop untuk menutup menu */}
                     <div 
                       className="fixed inset-0 bg-background/60 backdrop-blur-sm z-40 animate-in fade-in duration-200" 
                       onClick={() => setIsOpen(false)} 
                     />
                     
-                    {/* Floating Menu Options */}
                     <div className="absolute bottom-16 mb-4 flex flex-col items-end gap-4 z-50">
+                      <button onClick={() => handleCreateOption('todo')} className="group flex items-center gap-3 animate-in slide-in-from-bottom-2 duration-200" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
+                        <span className="text-xs font-semibold bg-background border border-border shadow-md px-3 py-1.5 rounded-xl text-foreground">Tugas Baru</span>
+                        <div className="w-12 h-12 bg-orange-500 rounded-full text-white shadow-lg flex items-center justify-center hover:scale-105 transition-transform">
+                          <CheckSquare size={20} />
+                        </div>
+                      </button>
                       <button onClick={() => handleCreateOption('voice')} className="group flex items-center gap-3 animate-in slide-in-from-bottom-2 duration-200" style={{ animationDelay: '150ms', animationFillMode: 'backwards' }}>
                         <span className="text-xs font-semibold bg-background border border-border shadow-md px-3 py-1.5 rounded-xl text-foreground">Suara</span>
                         <div className="w-12 h-12 bg-rose-500 rounded-full text-white shadow-lg flex items-center justify-center hover:scale-105 transition-transform">
@@ -65,7 +71,7 @@ export function BottomNav() {
                         </div>
                       </button>
                       <button onClick={() => handleCreateOption('text')} className="group flex items-center gap-3 animate-in slide-in-from-bottom-2 duration-200" style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}>
-                        <span className="text-xs font-semibold bg-background border border-border shadow-md px-3 py-1.5 rounded-xl text-foreground">Teks Biasa</span>
+                        <span className="text-xs font-semibold bg-background border border-border shadow-md px-3 py-1.5 rounded-xl text-foreground">Catatan Teks</span>
                         <div className="w-12 h-12 bg-primary rounded-full text-white shadow-lg flex items-center justify-center hover:scale-105 transition-transform">
                           <Type size={20} />
                         </div>
@@ -87,7 +93,6 @@ export function BottomNav() {
             );
           }
 
-          // Desain untuk menu lainnya
           return (
             <Link
               key={item.href}

@@ -6,16 +6,16 @@ import {
   Loader2, Trash2, Search, FileText, 
   LockKeyhole, KeyRound, LayoutGrid, List, 
   ArrowDownAZ, ArrowDownZA, Clock, ArrowUpCircle, Filter,
-  AlertCircle // Tambahan icon AlertCircle untuk Modal
+  AlertCircle, Pin // Tambahan icon Pin
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getUserNotes, deleteNote, NoteData } from "@/lib/notes-service";
+import { getUserNotes, deleteNote, updateNote, NoteData } from "@/lib/notes-service";
 import { getUserProfile } from "@/lib/user-service";
 import Link from "next/link";
 
 export default function NotesPage() {
   const { user, loading: authLoading } = useAuth();
-  const [notes, setNotes] = useState<(NoteData & { id: string; isHidden?: boolean })[]>([]);
+  const [notes, setNotes] = useState<(NoteData & { id: string; isHidden?: boolean; isPinned?: boolean })[]>([]);
   const [loadingNotes, setLoadingNotes] = useState(true);
   
   // State Pencarian, Tampilan & Filter Premium
@@ -61,7 +61,7 @@ export default function NotesPage() {
         getUserNotes(user.uid),
         getUserProfile(user.uid)
       ]);
-      setNotes(notesData as (NoteData & { id: string; isHidden?: boolean })[]);
+      setNotes(notesData as (NoteData & { id: string; isHidden?: boolean; isPinned?: boolean })[]);
       
       if (profileData?.pinCode) {
         setCorrectPin(profileData.pinCode);
@@ -79,10 +79,9 @@ export default function NotesPage() {
     } else if (!authLoading) {
       setLoadingNotes(false);
     }
-  }, [user, authLoading]);
+  }, [user, authLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDelete = (id: string) => {
-    // Menggunakan Custom Confirm Modal
     showConfirm(
       "Hapus Catatan?", 
       "Apakah kamu yakin ingin menghapus catatan ini? Tindakan ini tidak dapat dibatalkan.", 
@@ -92,6 +91,24 @@ export default function NotesPage() {
       }
     );
   };
+
+  // --- FUNGSI TOGGLE PIN ---
+  const handleTogglePin = async (id: string, currentPinStatus: boolean | undefined) => {
+    const newStatus = !currentPinStatus;
+    
+    // Optimistic Update (Ubah di UI dulu biar terasa cepat)
+    setNotes(notes.map(n => n.id === id ? { ...n, isPinned: newStatus } : n));
+    
+    try {
+      await updateNote(id, { isPinned: newStatus });
+    } catch (error) {
+      console.error("Gagal mengubah status pin:", error);
+      showAlert("Gagal", "Terjadi kesalahan saat menyematkan catatan.");
+      // Rollback jika gagal
+      setNotes(notes.map(n => n.id === id ? { ...n, isPinned: currentPinStatus } : n));
+    }
+  };
+  // -------------------------
 
   const handleUnlockVault = () => {
     if (!correctPin) {
@@ -133,10 +150,8 @@ export default function NotesPage() {
 
   // 2. Logika Pemrosesan (Filter -> Search -> Sort)
   let displayedNotes = [...availableNotes].filter(note => {
-    // Filter Tag
     if (selectedTag && (!note.tags || !note.tags.includes(selectedTag))) return false;
     
-    // Filter Pencarian Teks
     const query = searchQuery.toLowerCase();
     const titleMatch = note.title?.toLowerCase().includes(query);
     const contentMatch = note.content?.toLowerCase().includes(query);
@@ -145,14 +160,24 @@ export default function NotesPage() {
     return titleMatch || contentMatch || tagsMatch;
   });
 
-  // 3. Logika Pengurutan (Sorting)
-  if (sortBy === "oldest") {
-    displayedNotes.reverse(); // Asumsi default dari API adalah newest first
-  } else if (sortBy === "az") {
-    displayedNotes.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
-  } else if (sortBy === "za") {
-    displayedNotes.sort((a, b) => (b.title || "").localeCompare(a.title || ""));
-  }
+  // 3. Logika Pengurutan (Pisahkan Pinned dan Unpinned dulu)
+  let pinnedNotes = displayedNotes.filter(n => n.isPinned);
+  let unpinnedNotes = displayedNotes.filter(n => !n.isPinned);
+
+  const applySort = (arr: any[]) => {
+    let sorted = [...arr];
+    if (sortBy === "oldest") {
+      sorted.reverse();
+    } else if (sortBy === "az") {
+      sorted.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+    } else if (sortBy === "za") {
+      sorted.sort((a, b) => (b.title || "").localeCompare(a.title || ""));
+    }
+    return sorted;
+  };
+
+  // Gabungkan kembali: Yang Pinned selalu di atas!
+  displayedNotes = [...applySort(pinnedNotes), ...applySort(unpinnedNotes)];
 
   return (
     <div className="p-4 pb-24 space-y-6 animate-in fade-in duration-500">
@@ -191,7 +216,6 @@ export default function NotesPage() {
       {/* Toolbar Premium: Search, Filter, Sort, View Mode */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          {/* Search */}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
@@ -203,7 +227,6 @@ export default function NotesPage() {
             />
           </div>
           
-          {/* Sort Dropdown Menu */}
           <div className="relative">
             <Button 
               variant={sortBy !== "newest" ? "default" : "outline"}
@@ -236,7 +259,6 @@ export default function NotesPage() {
             )}
           </div>
 
-          {/* Toggle View Mode */}
           <Button 
             variant="outline" 
             size="icon" 
@@ -247,7 +269,6 @@ export default function NotesPage() {
           </Button>
         </div>
 
-        {/* Filter Tags Horizontal (Pills) */}
         {allTags.length > 0 && (
           <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide snap-x">
             <button
@@ -293,9 +314,11 @@ export default function NotesPage() {
           {displayedNotes.map((note) => (
             <div 
               key={note.id} 
-              className={`relative group bg-card border rounded-2xl overflow-hidden hover:shadow-lg hover:border-primary/30 transition-all duration-300 ${isVaultOpen ? 'border-purple-500/30' : 'border-border'}`}
+              className={`relative group bg-card border rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 ${
+                note.isPinned ? 'border-primary/50 shadow-sm' : (isVaultOpen ? 'border-purple-500/30 hover:border-purple-500/50' : 'border-border hover:border-primary/30')
+              }`}
             >
-              <Link href={`/edit/${note.id}`} className={`block w-full h-full ${viewMode === "list" ? "p-4 pr-14" : "p-4 pb-12"}`}>
+              <Link href={`/edit/${note.id}`} className={`block w-full h-full ${viewMode === "list" ? "p-4 pr-24" : "p-4 pb-12"}`}>
                 <h4 className={`font-bold text-foreground mb-1 flex items-center gap-2 line-clamp-2 ${viewMode === 'grid' ? 'text-sm' : 'text-base'}`}>
                   {isVaultOpen && <LockKeyhole className="w-3.5 h-3.5 text-purple-500 shrink-0" />}
                   {note.title || "Tanpa Judul"}
@@ -317,19 +340,33 @@ export default function NotesPage() {
                 )}
               </Link>
               
-              {/* Tombol Hapus */}
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className={`absolute ${viewMode === 'list' ? 'top-1/2 -translate-y-1/2 right-2' : 'bottom-2 right-2'} h-9 w-9 text-muted-foreground hover:bg-destructive hover:text-white z-10 transition-colors rounded-xl`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handleDelete(note.id);
-                }}
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button>
+              {/* Grup Tombol Action (Pin & Hapus) */}
+              <div className={`absolute ${viewMode === 'list' ? 'top-1/2 -translate-y-1/2 right-2' : 'bottom-2 right-2'} flex items-center gap-1 z-10`}>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className={`h-9 w-9 rounded-xl transition-all ${note.isPinned ? 'text-primary bg-primary/10 opacity-100' : 'text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted'}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleTogglePin(note.id, note.isPinned);
+                  }}
+                >
+                  <Pin className={`w-4 h-4 ${note.isPinned ? 'fill-primary' : ''}`} />
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-9 w-9 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-white transition-all rounded-xl"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleDelete(note.id);
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           ))}
         </div>
@@ -353,56 +390,30 @@ export default function NotesPage() {
             />
             
             <div className="flex gap-3">
-              <Button 
-                variant="outline" 
-                className="flex-1 rounded-xl" 
-                onClick={() => {
-                  setShowPinModal(false); 
-                  setPinInput("");
-                }}
-              >
-                Batal
-              </Button>
-              <Button 
-                className="flex-1 rounded-xl bg-purple-600 hover:bg-purple-700 text-white" 
-                onClick={handleUnlockVault} 
-                disabled={pinInput.length !== 4}
-              >
-                Buka
-              </Button>
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={() => { setShowPinModal(false); setPinInput(""); }}>Batal</Button>
+              <Button className="flex-1 rounded-xl bg-purple-600 hover:bg-purple-700 text-white" onClick={handleUnlockVault} disabled={pinInput.length !== 4}>Buka</Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* CUSTOM DIALOG MODAL (Menggantikan fungsi alert/confirm bawaan browser) */}
+      {/* CUSTOM DIALOG MODAL */}
       {dialog.isOpen && (
         <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 text-center flex flex-col items-center">
-            
             <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 ${dialog.type === 'confirm' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>
               <AlertCircle className="w-7 h-7" />
             </div>
-            
             <h3 className="font-bold text-xl mb-2">{dialog.title}</h3>
             <p className="text-sm text-muted-foreground mb-6 leading-relaxed">{dialog.message}</p>
-            
             <div className="flex gap-3 w-full">
               {dialog.type === "confirm" && (
-                <Button 
-                  variant="outline" 
-                  className="flex-1 rounded-xl h-11 border-border bg-transparent" 
-                  onClick={() => setDialog(prev => ({ ...prev, isOpen: false }))}
-                >
-                  Batal
-                </Button>
+                <Button variant="outline" className="flex-1 rounded-xl h-11 border-border bg-transparent" onClick={() => setDialog(prev => ({ ...prev, isOpen: false }))}>Batal</Button>
               )}
               <Button 
                 className={`flex-1 rounded-xl h-11 text-white shadow-md ${dialog.type === 'confirm' ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'}`} 
                 onClick={() => {
-                  if (dialog.type === "confirm" && dialog.onConfirm) {
-                    dialog.onConfirm();
-                  }
+                  if (dialog.type === "confirm" && dialog.onConfirm) dialog.onConfirm();
                   setDialog(prev => ({ ...prev, isOpen: false }));
                 }}
               >
@@ -412,7 +423,6 @@ export default function NotesPage() {
           </div>
         </div>
       )}
-
     </div>
   );
 }
