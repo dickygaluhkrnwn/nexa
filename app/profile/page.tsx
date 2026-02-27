@@ -6,14 +6,14 @@ import { getUserProfile, updateUserProfile } from "@/lib/user-service";
 import { getUserNotes } from "@/lib/notes-service"; // Tambahan untuk mengambil statistik
 import { Button } from "@/components/ui/button";
 import { 
-  LogOut, Save, Loader2, Phone, BellRing, 
+  Save, Loader2, Phone, BellRing, 
   Pencil, X, Lock, ShieldCheck, Sparkles, 
   FileText, CheckSquare, LockKeyhole 
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export default function ProfilePage() {
-  const { user, logout, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   
   const [whatsapp, setWhatsapp] = useState("");
@@ -58,7 +58,7 @@ export default function ProfilePage() {
     fetchProfileAndStats();
   }, [user]);
 
-  // TAMBAHAN: Gunakan useEffect untuk navigasi agar tidak bentrok dengan proses render React
+  // Gunakan useEffect untuk navigasi agar tidak bentrok dengan proses render React
   useEffect(() => {
     if (!authLoading && !user) {
       router.push("/");
@@ -102,13 +102,6 @@ export default function ProfilePage() {
       alert("Gagal menyimpan PIN.");
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    if (confirm("Apakah kamu yakin ingin keluar?")) {
-      await logout();
-      router.push("/");
     }
   };
 
@@ -306,23 +299,6 @@ export default function ProfilePage() {
             )}
           </div>
         </div>
-      </div>
-
-      {/* 5. Pengaturan Akun Lainnya (Logout) */}
-      <div className="pt-8 pb-4">
-        <Button 
-          variant="outline" 
-          onClick={handleLogout} 
-          className="w-full justify-start border-destructive/20 text-destructive hover:bg-destructive hover:text-white transition-all rounded-2xl p-6 h-auto group shadow-sm"
-        >
-          <div className="p-2.5 bg-destructive/10 group-hover:bg-white/20 rounded-xl mr-4 transition-colors">
-            <LogOut className="w-5 h-5" />
-          </div>
-          <div className="text-left">
-            <h3 className="font-bold text-base">Keluar dari Akun</h3>
-            <p className="text-xs opacity-80 font-medium mt-0.5">Sesi akan diakhiri dari perangkat ini</p>
-          </div>
-        </Button>
       </div>
 
     </div>

@@ -1,12 +1,14 @@
 "use client";
 
-import { Moon, Sun, Menu, X, Settings } from "lucide-react";
+import { Moon, Sun, Menu, X, Settings, Download, LogOut } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
 
 export function Header() {
   const { theme, setTheme } = useTheme();
+  const { user, logout } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   
@@ -14,9 +16,26 @@ export function Header() {
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
-  // Mencegah hydration error pada tema
+  // State untuk PWA Install Prompt
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  // Mencegah hydration error pada tema & Listen ke event install PWA
   useEffect(() => {
     setMounted(true);
+
+    // Tangkap event install prompt dari browser
+    const handleBeforeInstallPrompt = (e: any) => {
+      // Mencegah browser menampilkan prompt install otomatis
+      e.preventDefault();
+      // Simpan event-nya untuk dipicu nanti saat tombol diklik
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    };
   }, []);
 
   // Logika Scroll untuk menyembunyikan/menampilkan header
@@ -38,6 +57,29 @@ export function Header() {
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, [lastScrollY]);
+
+  // Fungsi untuk memicu proses instalasi PWA
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      // Tampilkan prompt instalasi bawaan browser
+      deferredPrompt.prompt();
+      // Tunggu respons dari user (diterima atau ditolak)
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        // Jika diinstal, sembunyikan tombol
+        setDeferredPrompt(null);
+      }
+    }
+    setIsMenuOpen(false);
+  };
+
+  // Fungsi untuk logout
+  const handleLogout = async () => {
+    if (confirm("Apakah kamu yakin ingin keluar?")) {
+      await logout();
+      setIsMenuOpen(false);
+    }
+  };
 
   return (
     <header 
@@ -89,6 +131,28 @@ export function Header() {
                 </>
               )}
             </button>
+
+            {/* Tombol Install PWA: Hanya muncul jika deferredPrompt tersedia (aplikasi belum diinstal) */}
+            {deferredPrompt && (
+              <button
+                onClick={handleInstallClick}
+                className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors text-primary font-medium border-t border-border/50"
+              >
+                <Download className="h-4 w-4 mr-3" />
+                <span>Unduh Aplikasi</span>
+              </button>
+            )}
+
+            {/* Tombol Logout: Hanya muncul jika user sudah login */}
+            {user && (
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center px-4 py-3 text-sm hover:bg-destructive/10 transition-colors text-destructive font-medium border-t border-border/50"
+              >
+                <LogOut className="h-4 w-4 mr-3" />
+                <span>Keluar Akun</span>
+              </button>
+            )}
           </div>
         )}
       </div>
