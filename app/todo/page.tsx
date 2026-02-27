@@ -22,6 +22,29 @@ export default function TodoPage() {
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // --- STATE CUSTOM DIALOG MODAL ---
+  const [dialog, setDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: "alert" | "confirm";
+    onConfirm?: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "alert"
+  });
+
+  const showAlert = (title: string, message: string) => {
+    setDialog({ isOpen: true, title, message, type: "alert" });
+  };
+
+  const showConfirm = (title: string, message: string, onConfirm: () => void) => {
+    setDialog({ isOpen: true, title, message, type: "confirm", onConfirm });
+  };
+  // ---------------------------------
+
   const fetchTodos = async () => {
     if (!user) return;
     try {
@@ -55,26 +78,31 @@ export default function TodoPage() {
       await updateNote(todo.id, { isCompleted: newStatus } as any);
     } catch (error) {
       console.error("Gagal update status:", error);
-      alert("Gagal memperbarui status tugas.");
+      showAlert("Gagal", "Terjadi kesalahan. Gagal memperbarui status tugas.");
       // Rollback jika gagal
       setTodos(todos.map(t => t.id === todo.id ? { ...t, isCompleted: todo.isCompleted } : t));
     }
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
+  const handleDelete = (id: string, e: React.MouseEvent) => {
     e.preventDefault();
-    if (confirm("Apakah kamu yakin ingin menghapus tugas ini?")) {
-      // Optimistic delete
-      const previousTodos = [...todos];
-      setTodos(todos.filter(t => t.id !== id));
-      
-      try {
-        await deleteNote(id);
-      } catch (error) {
-        alert("Gagal menghapus tugas.");
-        setTodos(previousTodos); // Rollback
+    
+    showConfirm(
+      "Hapus Tugas?", 
+      "Apakah kamu yakin ingin menghapus tugas ini? Tindakan ini tidak dapat dibatalkan.", 
+      async () => {
+        // Optimistic delete
+        const previousTodos = [...todos];
+        setTodos(prev => prev.filter(t => t.id !== id));
+        
+        try {
+          await deleteNote(id);
+        } catch (error) {
+          showAlert("Gagal", "Terjadi kesalahan saat menghapus tugas.");
+          setTodos(previousTodos); // Rollback
+        }
       }
-    }
+    );
   };
 
   if (authLoading || loading) {
@@ -241,6 +269,45 @@ export default function TodoPage() {
           )}
         </div>
       )}
+
+      {/* CUSTOM DIALOG MODAL (Menggantikan fungsi alert/confirm bawaan browser) */}
+      {dialog.isOpen && (
+        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 text-center flex flex-col items-center">
+            
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 ${dialog.type === 'confirm' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>
+              <AlertCircle className="w-7 h-7" />
+            </div>
+            
+            <h3 className="font-bold text-xl mb-2">{dialog.title}</h3>
+            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">{dialog.message}</p>
+            
+            <div className="flex gap-3 w-full">
+              {dialog.type === "confirm" && (
+                <Button 
+                  variant="outline" 
+                  className="flex-1 rounded-xl h-11 border-border bg-transparent" 
+                  onClick={() => setDialog(prev => ({ ...prev, isOpen: false }))}
+                >
+                  Batal
+                </Button>
+              )}
+              <Button 
+                className={`flex-1 rounded-xl h-11 text-white shadow-md ${dialog.type === 'confirm' ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'}`} 
+                onClick={() => {
+                  if (dialog.type === "confirm" && dialog.onConfirm) {
+                    dialog.onConfirm();
+                  }
+                  setDialog(prev => ({ ...prev, isOpen: false }));
+                }}
+              >
+                {dialog.type === "confirm" ? "Ya, Hapus" : "Oke, Mengerti"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

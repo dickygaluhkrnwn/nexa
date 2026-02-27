@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { 
   Loader2, Save, ArrowLeft, Wand2, 
   Tag as TagIcon, Calendar, Lock, Unlock, 
-  Sparkles, CalendarClock, X, Download, FileText, File, Printer
+  Sparkles, CalendarClock, X, Download, FileText, File, Printer,
+  AlertCircle // Tambahan icon AlertCircle
 } from "lucide-react";
 import Link from "next/link";
 
@@ -39,6 +40,29 @@ export default function EditNotePage() {
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
 
+  // --- STATE CUSTOM DIALOG MODAL ---
+  const [dialog, setDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: "alert" | "confirm";
+    onConfirm?: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "alert"
+  });
+
+  const showAlert = (title: string, message: string, onConfirm?: () => void) => {
+    setDialog({ isOpen: true, title, message, type: "alert", onConfirm });
+  };
+
+  const showConfirm = (title: string, message: string, onConfirm: () => void) => {
+    setDialog({ isOpen: true, title, message, type: "confirm", onConfirm });
+  };
+  // ---------------------------------
+
   useEffect(() => {
     const fetchNote = async () => {
       if (!user || !noteId) return;
@@ -52,20 +76,22 @@ export default function EditNotePage() {
           setDueDate(noteData.dueDate || "");
           setIsHidden((noteData as any).isHidden || false);
         } else {
-          alert("Catatan tidak ditemukan atau Anda tidak memiliki akses.");
-          router.push("/");
+          showAlert("Akses Ditolak", "Catatan tidak ditemukan atau kamu tidak memiliki akses.", () => {
+            router.push("/");
+          });
         }
       } catch (error) {
         console.error("Gagal memuat catatan:", error);
-        alert("Gagal memuat catatan.");
-        router.push("/");
+        showAlert("Gagal", "Terjadi kesalahan saat memuat catatan.", () => {
+          router.push("/");
+        });
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchNote();
-  }, [user, noteId, router]);
+  }, [user, noteId, router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!user) {
     return (
@@ -133,7 +159,6 @@ export default function EditNotePage() {
   const handleExportPDF = () => {
     setShowExportMenu(false);
     
-    // Trik Iframe: Membuat jendela virtual untuk mem-print catatan bersih tanpa UI Aplikasi
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
     iframe.style.right = '0';
@@ -144,9 +169,11 @@ export default function EditNotePage() {
     document.body.appendChild(iframe);
 
     const iframeDoc = iframe.contentWindow?.document;
-    if (!iframeDoc) return;
+    if (!iframeDoc) {
+      showAlert("Error Ekspor", "Gagal memuat sistem pembuatan PDF.");
+      return;
+    }
 
-    // Masukkan HTML murni dan CSS kustom ke dalam iframe
     iframeDoc.open();
     iframeDoc.write(`
       <html>
@@ -186,11 +213,9 @@ export default function EditNotePage() {
     `);
     iframeDoc.close();
 
-    // Fokus ke iframe dan panggil dialog print browser
     iframe.contentWindow?.focus();
     setTimeout(() => {
       iframe.contentWindow?.print();
-      // Hapus iframe setelah selesai print agar memori tetap bersih
       setTimeout(() => {
         document.body.removeChild(iframe);
       }, 1000);
@@ -217,7 +242,10 @@ export default function EditNotePage() {
 
   const handleSummarize = async () => {
     const plainText = content.replace(/<[^>]+>/g, ' ').trim();
-    if (!plainText && !title) return alert("Catatan masih kosong!");
+    if (!plainText && !title) {
+      showAlert("Perhatian", "Catatan masih kosong! Tulis sesuatu dulu untuk dirangkum.");
+      return;
+    }
 
     setIsSummarizing(true);
     try {
@@ -225,7 +253,7 @@ export default function EditNotePage() {
       setAiSummary(result);
     } catch (error: any) {
       console.error(error);
-      alert(`Gagal merangkum: ${error.message}`);
+      showAlert("Gagal AI", `Gagal merangkum: ${error.message}`);
     } finally {
       setIsSummarizing(false);
     }
@@ -233,7 +261,10 @@ export default function EditNotePage() {
 
   const handleGenerateTags = async () => {
     const plainText = content.replace(/<[^>]+>/g, ' ').trim();
-    if (!plainText && !title) return alert("Tulis sesuatu dulu agar AI bisa menebak tag-nya!");
+    if (!plainText && !title) {
+      showAlert("Perhatian", "Tulis sesuatu dulu agar AI bisa menebak tag-nya!");
+      return;
+    }
 
     setIsGeneratingTags(true);
     try {
@@ -245,7 +276,7 @@ export default function EditNotePage() {
       }
     } catch (error) {
       console.error(error);
-      alert("Gagal menebak tag.");
+      showAlert("Gagal AI", "Gagal menebak tag. Coba lagi nanti.");
     } finally {
       setIsGeneratingTags(false);
     }
@@ -282,7 +313,7 @@ export default function EditNotePage() {
       router.push("/notes"); 
     } catch (error) {
       console.error("Gagal menyimpan:", error);
-      alert("Gagal menyimpan perubahan.");
+      showAlert("Gagal Menyimpan", "Terjadi kesalahan saat menyimpan perubahan.");
       setIsSaving(false);
     }
   };
@@ -291,7 +322,7 @@ export default function EditNotePage() {
     <div className="pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto">
       
       {/* Sticky Header Actions */}
-      <div className="sticky top-14 z-40 bg-background/80 backdrop-blur-md border-b border-border p-4 flex items-center justify-between">
+      <div className="sticky top-14 z-40 bg-background/80 backdrop-blur-md border-b border-border p-4 flex items-center justify-between print:hidden">
         <Link href="/notes" className="p-2 -ml-2 rounded-full hover:bg-muted text-muted-foreground transition-colors">
           <ArrowLeft className="w-5 h-5" />
         </Link>
@@ -337,7 +368,7 @@ export default function EditNotePage() {
         </div>
       </div>
 
-      <div className="p-4 space-y-6">
+      <div className="p-4 space-y-6 print:p-0 print:space-y-4">
         {/* Area Judul */}
         <div>
           <input
@@ -345,12 +376,12 @@ export default function EditNotePage() {
             placeholder="Judul Catatan..."
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full text-4xl font-extrabold tracking-tight bg-transparent border-none outline-none placeholder:text-muted-foreground/30 focus:ring-0"
+            className="w-full text-4xl font-extrabold tracking-tight bg-transparent border-none outline-none placeholder:text-muted-foreground/30 focus:ring-0 print:text-black print:p-0"
           />
         </div>
 
         {/* Input & Display Tags */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
           {tags.map((tag) => (
             <span key={tag} className="px-3 py-1.5 text-xs font-medium bg-primary/10 text-primary rounded-lg flex items-center gap-1.5 animate-in zoom-in-95">
               <TagIcon className="w-3 h-3" /> {tag}
@@ -368,7 +399,7 @@ export default function EditNotePage() {
         </div>
 
         {/* Quick Actions */}
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/50">
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/50 print:hidden">
           <Button variant={isTodo ? "default" : "outline"} size="sm" onClick={() => setIsTodo(!isTodo)} className={`rounded-xl transition-all ${isTodo ? "bg-orange-500 hover:bg-orange-600 text-white border-orange-500" : "bg-card"}`}>
             <CalendarClock className={`w-4 h-4 mr-2 ${isTodo ? "text-white" : "text-orange-500"}`} /> Jadikan Tugas
           </Button>
@@ -385,7 +416,7 @@ export default function EditNotePage() {
 
         {/* Date Picker */}
         {isTodo && (
-          <div className="flex items-center gap-3 p-3 bg-orange-500/10 border border-orange-500/20 rounded-2xl animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3 p-3 bg-orange-500/10 border border-orange-500/20 rounded-2xl animate-in fade-in slide-in-from-top-2 print:hidden">
             <div className="p-2 bg-white/50 dark:bg-black/20 rounded-xl"><Calendar className="w-5 h-5 text-orange-600" /></div>
             <div className="flex-1">
               <p className="text-xs font-semibold text-orange-600 uppercase tracking-wider mb-0.5">Tenggat Waktu</p>
@@ -396,7 +427,7 @@ export default function EditNotePage() {
 
         {/* AI Summary */}
         {aiSummary && (
-          <div className="relative p-5 rounded-2xl bg-gradient-to-br from-cyan-500/10 via-purple-500/5 to-purple-500/10 border border-purple-500/20 animate-in fade-in zoom-in-95 shadow-sm">
+          <div className="relative p-5 rounded-2xl bg-gradient-to-br from-cyan-500/10 via-purple-500/5 to-purple-500/10 border border-purple-500/20 animate-in fade-in zoom-in-95 shadow-sm print:hidden">
             <div className="absolute top-0 right-0 p-2">
               <button onClick={() => setAiSummary(null)} className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full"><X className="w-4 h-4"/></button>
             </div>
@@ -408,10 +439,49 @@ export default function EditNotePage() {
         )}
 
         {/* Rich Text Editor */}
-        <div className="pt-2">
+        <div className="pt-2 print:text-black">
           <TiptapEditor content={content} onChange={setContent} />
         </div>
       </div>
+
+      {/* CUSTOM DIALOG MODAL (Menggantikan fungsi alert/confirm bawaan browser) */}
+      {dialog.isOpen && (
+        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 text-center flex flex-col items-center">
+            
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 ${dialog.type === 'confirm' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>
+              <AlertCircle className="w-7 h-7" />
+            </div>
+            
+            <h3 className="font-bold text-xl mb-2">{dialog.title}</h3>
+            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">{dialog.message}</p>
+            
+            <div className="flex gap-3 w-full">
+              {dialog.type === "confirm" && (
+                <Button 
+                  variant="outline" 
+                  className="flex-1 rounded-xl h-11 border-border bg-transparent" 
+                  onClick={() => setDialog(prev => ({ ...prev, isOpen: false }))}
+                >
+                  Batal
+                </Button>
+              )}
+              <Button 
+                className={`flex-1 rounded-xl h-11 text-white shadow-md ${dialog.type === 'confirm' ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'}`} 
+                onClick={() => {
+                  if (dialog.onConfirm) {
+                    dialog.onConfirm();
+                  }
+                  setDialog(prev => ({ ...prev, isOpen: false }));
+                }}
+              >
+                {dialog.type === "confirm" ? "Ya, Lanjutkan" : "Oke, Mengerti"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

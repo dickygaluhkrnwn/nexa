@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { addNote } from "@/lib/notes-service";
@@ -10,7 +10,7 @@ import {
   Loader2, Save, ArrowLeft, Wand2, 
   Tag as TagIcon, Calendar, Lock, Unlock, 
   Sparkles, CalendarClock, X, Download, FileText, File, Printer,
-  Camera, Image as ImageIcon, Mic
+  Camera, Image as ImageIcon, Mic, AlertCircle // Tambahan icon AlertCircle
 } from "lucide-react";
 import Link from "next/link";
 
@@ -30,19 +30,42 @@ export default function CreateNotePage() {
   const [dueDate, setDueDate] = useState("");
   const [isHidden, setIsHidden] = useState(false); 
   
-  // State Ekspor, Loading & Editor Key (Untuk force re-render Tiptap)
+  // State Ekspor, Loading & Editor Key
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
-  const [editorKey, setEditorKey] = useState(0); // State penting agar Tiptap update saat diisi AI/Suara
+  const [editorKey, setEditorKey] = useState(0); 
 
   // Reference & State untuk OCR (Kamera & Galeri) dan Voice
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+
+  // --- STATE CUSTOM DIALOG MODAL ---
+  const [dialog, setDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: "alert" | "confirm";
+    onConfirm?: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "alert"
+  });
+
+  const showAlert = (title: string, message: string) => {
+    setDialog({ isOpen: true, title, message, type: "alert" });
+  };
+
+  const showConfirm = (title: string, message: string, onConfirm: () => void) => {
+    setDialog({ isOpen: true, title, message, type: "confirm", onConfirm });
+  };
+  // ---------------------------------
 
   if (!user) {
     return (
@@ -108,7 +131,10 @@ export default function CreateNotePage() {
     document.body.appendChild(iframe);
 
     const iframeDoc = iframe.contentWindow?.document;
-    if (!iframeDoc) return;
+    if (!iframeDoc) {
+      showAlert("Error Ekspor", "Gagal memuat sistem pembuatan PDF.");
+      return;
+    }
 
     iframeDoc.open();
     iframeDoc.write(`
@@ -158,14 +184,17 @@ export default function CreateNotePage() {
 
   const handleSummarize = async () => {
     const plainText = content.replace(/<[^>]+>/g, ' ').trim();
-    if (!plainText && !title) return alert("Catatan masih kosong!");
+    if (!plainText && !title) {
+      showAlert("Perhatian", "Catatan masih kosong! Tulis sesuatu dulu untuk dirangkum.");
+      return;
+    }
 
     setIsSummarizing(true);
     try {
       const result = await callAI({ action: "summarize", content: `Judul: ${title}\n\nIsi: ${plainText}` });
       setAiSummary(result);
     } catch (error: any) {
-      alert(`Gagal merangkum: ${error.message}`);
+      showAlert("Gagal AI", `Gagal merangkum: ${error.message}`);
     } finally {
       setIsSummarizing(false);
     }
@@ -173,7 +202,10 @@ export default function CreateNotePage() {
 
   const handleGenerateTags = async () => {
     const plainText = content.replace(/<[^>]+>/g, ' ').trim();
-    if (!plainText && !title) return alert("Tulis sesuatu dulu agar AI bisa menebak tag-nya!");
+    if (!plainText && !title) {
+      showAlert("Perhatian", "Tulis sesuatu dulu agar AI bisa menebak tag-nya!");
+      return;
+    }
 
     setIsGeneratingTags(true);
     try {
@@ -183,7 +215,7 @@ export default function CreateNotePage() {
         setTags(Array.from(new Set([...tags, ...newTags])));
       }
     } catch (error: any) {
-      alert("Gagal menebak tag.");
+      showAlert("Gagal AI", "Gagal menebak tag. Coba lagi nanti.");
     } finally {
       setIsGeneratingTags(false);
     }
@@ -213,7 +245,7 @@ export default function CreateNotePage() {
           const cleanHtml = extractedHtml?.replace(/```html/g, '').replace(/```/g, '').trim();
 
           if (!cleanHtml || cleanHtml === "") {
-            alert("AI tidak menemukan teks pada gambar ini.");
+            showAlert("Info AI", "AI tidak menemukan teks pada gambar ini.");
           } else {
             setContent((prev) => prev + (prev ? "<br><br>" : "") + cleanHtml);
             setEditorKey(prev => prev + 1); // FORCE TIPTAP UPDATE
@@ -221,7 +253,7 @@ export default function CreateNotePage() {
           }
 
         } catch (apiError: any) {
-          alert(`Gagal memproses gambar: ${apiError.message}`);
+          showAlert("Gagal Scan", `Gagal memproses gambar: ${apiError.message}`);
         } finally {
           setIsScanning(false);
         }
@@ -229,16 +261,15 @@ export default function CreateNotePage() {
       reader.readAsDataURL(file);
     } catch (error) {
       setIsScanning(false);
-      alert("Gagal membaca file gambar.");
+      showAlert("Error File", "Gagal membaca file gambar.");
     }
   };
 
   // --- FUNGSI VOICE TO TEXT (SPEECH RECOGNITION) ---
   const handleVoiceRecord = () => {
-    // Memperbaiki error TypeScript dengan men-cast window sebagai any
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert("Maaf, browser kamu tidak mendukung fitur Suara ke Teks. Coba gunakan Google Chrome.");
+      showAlert("Tidak Mendukung", "Maaf, browser kamu tidak mendukung fitur Suara ke Teks. Coba gunakan Google Chrome.");
       return;
     }
 
@@ -259,7 +290,7 @@ export default function CreateNotePage() {
 
     recognition.onerror = (event: any) => {
       console.error("Speech error", event.error);
-      alert("Gagal mengenali suara. Pastikan kamu sudah memberikan izin mikrofon.");
+      showAlert("Gagal Mendengar", "Gagal mengenali suara. Pastikan kamu sudah memberikan izin mikrofon di browser.");
       setIsRecording(false);
     };
 
@@ -268,6 +299,26 @@ export default function CreateNotePage() {
     recognition.start();
   };
   // ---------------------------------------------
+
+  // --- EFEK UNTUK MENANGKAP SHORTCUT DARI BOTTOM NAV ---
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const mode = searchParams.get('mode');
+
+    if (mode) {
+      window.history.replaceState(null, '', '/create');
+      setTimeout(() => {
+        if (mode === 'camera' && cameraInputRef.current) {
+          cameraInputRef.current.click();
+        } else if (mode === 'gallery' && galleryInputRef.current) {
+          galleryInputRef.current.click();
+        } else if (mode === 'voice') {
+          handleVoiceRecord();
+        }
+      }, 500);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // --------------------------------------------------------
 
   const handleSave = async () => {
     const plainText = content.replace(/<[^>]+>/g, ' ').trim();
@@ -301,7 +352,7 @@ export default function CreateNotePage() {
       router.push("/");
     } catch (error) {
       console.error("Gagal menyimpan:", error);
-      alert("Gagal menyimpan catatan.");
+      showAlert("Gagal", "Terjadi kesalahan. Gagal menyimpan catatan.");
       setIsSaving(false);
     }
   };
@@ -418,6 +469,44 @@ export default function CreateNotePage() {
           <TiptapEditor key={editorKey} content={content} onChange={setContent} />
         </div>
       </div>
+
+      {/* CUSTOM DIALOG MODAL (Menggantikan fungsi alert/confirm bawaan browser) */}
+      {dialog.isOpen && (
+        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 text-center flex flex-col items-center">
+            
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 ${dialog.type === 'confirm' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>
+              <AlertCircle className="w-7 h-7" />
+            </div>
+            
+            <h3 className="font-bold text-xl mb-2">{dialog.title}</h3>
+            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">{dialog.message}</p>
+            
+            <div className="flex gap-3 w-full">
+              {dialog.type === "confirm" && (
+                <Button 
+                  variant="outline" 
+                  className="flex-1 rounded-xl h-11 border-border bg-transparent" 
+                  onClick={() => setDialog(prev => ({ ...prev, isOpen: false }))}
+                >
+                  Batal
+                </Button>
+              )}
+              <Button 
+                className={`flex-1 rounded-xl h-11 text-white shadow-md ${dialog.type === 'confirm' ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'}`} 
+                onClick={() => {
+                  if (dialog.type === "confirm" && dialog.onConfirm) {
+                    dialog.onConfirm();
+                  }
+                  setDialog(prev => ({ ...prev, isOpen: false }));
+                }}
+              >
+                {dialog.type === "confirm" ? "Ya, Lanjutkan" : "Oke, Mengerti"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

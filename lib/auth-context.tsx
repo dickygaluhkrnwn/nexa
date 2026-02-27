@@ -9,9 +9,10 @@ import {
   User,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  updateProfile
+  updateProfile,
+  signInAnonymously // <-- Tambahan untuk Guest Login
 } from "firebase/auth";
-import { auth, db } from "./firebase"; // Pastikan 'db' juga diexport dari file firebase.ts
+import { auth, db } from "./firebase";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 
 interface AuthContextType {
@@ -20,6 +21,7 @@ interface AuthContextType {
   loginWithGoogle: () => Promise<void>;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
   registerWithEmail: (name: string, email: string, pass: string) => Promise<void>;
+  loginAsGuest: () => Promise<void>; // <-- Fungsi baru
   logout: () => Promise<void>;
 }
 
@@ -29,6 +31,7 @@ const AuthContext = createContext<AuthContextType>({
   loginWithGoogle: async () => {},
   loginWithEmail: async () => {},
   registerWithEmail: async () => {},
+  loginAsGuest: async () => {},
   logout: async () => {},
 });
 
@@ -42,14 +45,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       
-      // Jika user baru login/register, pastikan data dasar profilnya tersimpan di Firestore
       if (currentUser) {
         const userRef = doc(db, "users", currentUser.uid);
         const userSnap = await getDoc(userRef);
         if (!userSnap.exists()) {
+          // Menyimpan data dasar, mendeteksi jika ini adalah akun Tamu
           await setDoc(userRef, {
-            email: currentUser.email,
-            displayName: currentUser.displayName || "Pengguna Nexa",
+            email: currentUser.email || "Akun Tamu",
+            displayName: currentUser.displayName || (currentUser.isAnonymous ? "Tamu Nexa" : "Pengguna Nexa"),
+            isAnonymous: currentUser.isAnonymous,
             createdAt: new Date(),
           }, { merge: true });
         }
@@ -75,23 +79,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       await signInWithEmailAndPassword(auth, email, pass);
     } catch (error) {
       console.error("Error login Email:", error);
-      throw error; // Lempar error ke UI (halaman Home) agar bisa ditampilkan sebagai alert
+      throw error;
     }
   };
 
   const registerWithEmail = async (name: string, email: string, pass: string) => {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
-      
-      // Update nama profil (displayName) di Firebase Auth setelah berhasil mendaftar
       await updateProfile(userCredential.user, {
         displayName: name
       });
-      
-      // Force refresh user state agar nama langsung muncul di UI tanpa harus reload web
       setUser({ ...userCredential.user, displayName: name } as User);
     } catch (error) {
       console.error("Error register Email:", error);
+      throw error;
+    }
+  };
+
+  // Fungsi untuk login sebagai Tamu (Anonymous)
+  const loginAsGuest = async () => {
+    try {
+      await signInAnonymously(auth);
+    } catch (error) {
+      console.error("Error logging in as Guest", error);
       throw error;
     }
   };
@@ -105,7 +115,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, loginWithGoogle, loginWithEmail, registerWithEmail, logout }}>
+    <AuthContext.Provider value={{ user, loading, loginWithGoogle, loginWithEmail, registerWithEmail, loginAsGuest, logout }}>
       {children}
     </AuthContext.Provider>
   );

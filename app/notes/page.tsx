@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { 
   Loader2, Trash2, Search, FileText, 
   LockKeyhole, KeyRound, LayoutGrid, List, 
-  ArrowDownAZ, ArrowDownZA, Clock, ArrowUpCircle, Filter
+  ArrowDownAZ, ArrowDownZA, Clock, ArrowUpCircle, Filter,
+  AlertCircle // Tambahan icon AlertCircle untuk Modal
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getUserNotes, deleteNote, NoteData } from "@/lib/notes-service";
@@ -29,6 +30,29 @@ export default function NotesPage() {
   const [pinInput, setPinInput] = useState("");
   const [showPinModal, setShowPinModal] = useState(false);
   const [correctPin, setCorrectPin] = useState<string | null>(null);
+
+  // --- STATE CUSTOM DIALOG MODAL ---
+  const [dialog, setDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: "alert" | "confirm";
+    onConfirm?: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "alert"
+  });
+
+  const showAlert = (title: string, message: string) => {
+    setDialog({ isOpen: true, title, message, type: "alert" });
+  };
+
+  const showConfirm = (title: string, message: string, onConfirm: () => void) => {
+    setDialog({ isOpen: true, title, message, type: "confirm", onConfirm });
+  };
+  // ---------------------------------
 
   const fetchData = async () => {
     if (!user) return;
@@ -57,16 +81,21 @@ export default function NotesPage() {
     }
   }, [user, authLoading]);
 
-  const handleDelete = async (id: string) => {
-    if (confirm("Apakah kamu yakin ingin menghapus catatan ini?")) {
-      await deleteNote(id);
-      fetchData(); 
-    }
+  const handleDelete = (id: string) => {
+    // Menggunakan Custom Confirm Modal
+    showConfirm(
+      "Hapus Catatan?", 
+      "Apakah kamu yakin ingin menghapus catatan ini? Tindakan ini tidak dapat dibatalkan.", 
+      async () => {
+        await deleteNote(id);
+        fetchData(); 
+      }
+    );
   };
 
   const handleUnlockVault = () => {
     if (!correctPin) {
-      alert("Kamu belum mengatur PIN Brankas. Silakan atur di halaman Profil!");
+      showAlert("PIN Belum Diatur", "Kamu belum mengatur PIN Brankas. Silakan atur terlebih dahulu di halaman Profil!");
       setShowPinModal(false);
       return;
     }
@@ -76,7 +105,7 @@ export default function NotesPage() {
       setPinInput("");
       setSelectedTag(null); // Reset tag filter saat ganti ruang
     } else {
-      alert("PIN Salah!");
+      showAlert("Akses Ditolak", "PIN yang kamu masukkan salah!");
       setPinInput("");
     }
   };
@@ -340,6 +369,44 @@ export default function NotesPage() {
                 disabled={pinInput.length !== 4}
               >
                 Buka
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM DIALOG MODAL (Menggantikan fungsi alert/confirm bawaan browser) */}
+      {dialog.isOpen && (
+        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 text-center flex flex-col items-center">
+            
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 ${dialog.type === 'confirm' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>
+              <AlertCircle className="w-7 h-7" />
+            </div>
+            
+            <h3 className="font-bold text-xl mb-2">{dialog.title}</h3>
+            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">{dialog.message}</p>
+            
+            <div className="flex gap-3 w-full">
+              {dialog.type === "confirm" && (
+                <Button 
+                  variant="outline" 
+                  className="flex-1 rounded-xl h-11 border-border bg-transparent" 
+                  onClick={() => setDialog(prev => ({ ...prev, isOpen: false }))}
+                >
+                  Batal
+                </Button>
+              )}
+              <Button 
+                className={`flex-1 rounded-xl h-11 text-white shadow-md ${dialog.type === 'confirm' ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'}`} 
+                onClick={() => {
+                  if (dialog.type === "confirm" && dialog.onConfirm) {
+                    dialog.onConfirm();
+                  }
+                  setDialog(prev => ({ ...prev, isOpen: false }));
+                }}
+              >
+                {dialog.type === "confirm" ? "Ya, Hapus" : "Oke, Mengerti"}
               </Button>
             </div>
           </div>
