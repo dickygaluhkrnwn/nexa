@@ -1,12 +1,13 @@
 "use client";
 
-import { Moon, Sun, Menu, X, Settings, Download, LogOut, AlertCircle, Heart, Info } from "lucide-react";
+import { Moon, Sun, Menu, X, Settings, Download, LogOut, AlertCircle, Heart, Info, MessageSquareQuote } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+
 export function Header() {
   const { theme, setTheme } = useTheme();
   const { user, logout } = useAuth();
@@ -162,6 +163,14 @@ export function Header() {
                 <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium border-t border-border/50">
                   <Info className="h-4 w-4 mr-3 text-blue-500" />
                   <span>Tentang Aplikasi</span>
+                </div>
+              </Link>
+
+              {/* Tambahan Menu Akses Halaman Feedback */}
+              <Link href="/feedback" onClick={() => setIsMenuOpen(false)}>
+                <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium border-t border-border/50">
+                  <MessageSquareQuote className="h-4 w-4 mr-3 text-green-500" />
+                  <span>Kirim Masukan</span>
                 </div>
               </Link>
 
