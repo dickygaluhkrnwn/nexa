@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { 
   Loader2, Save, ArrowLeft, Calendar, 
   AlignLeft, Repeat, Clock, Trash2,
-  ListTodo, Plus, X, Circle, CheckCircle2
+  ListTodo, Plus, X, Circle, CheckCircle2, CalendarPlus
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
@@ -101,6 +101,62 @@ export default function EditTodoPage() {
   };
   // -------------------------
 
+  // --- FUNGSI GOOGLE CALENDAR SYNC ---
+  const handleSyncCalendar = () => {
+    if (!title.trim()) {
+      showAlert("Perhatian", "Judul tugas tidak boleh kosong untuk disinkronkan ke Kalender.");
+      return;
+    }
+
+    const baseUrl = "https://calendar.google.com/calendar/render?action=TEMPLATE";
+    const eventText = encodeURIComponent(title.trim());
+    
+    // Bersihkan tag HTML dari konten untuk masuk ke deskripsi Google Calendar
+    let cleanContent = content.replace(/<[^>]+>/g, '\n').trim();
+    
+    // Tambahkan daftar sub-tugas ke deskripsi GCal
+    if (subTasks.length > 0) {
+      cleanContent += "\n\nSub-Tugas:\n" + subTasks.map(st => `- [${st.isCompleted ? 'x' : ' '}] ${st.text}`).join("\n");
+    }
+    cleanContent += "\n\n---\nDibuat menggunakan Nexa AI 🚀";
+    
+    const eventDetails = encodeURIComponent(cleanContent);
+
+    let dates = "";
+    if (dueDate) {
+      try {
+        if (dueTime) {
+          // Jika ada jam, set durasi default 1 jam
+          const dateObj = new Date(`${dueDate}T${dueTime}`);
+          const startStr = dateObj.toISOString().replace(/-|:|\.\d\d\d/g, "");
+          const endDateObj = new Date(dateObj.getTime() + 60 * 60 * 1000); 
+          const endStr = endDateObj.toISOString().replace(/-|:|\.\d\d\d/g, "");
+          dates = `&dates=${startStr}/${endStr}`;
+        } else {
+          // Jika tidak ada jam, set sebagai "All-day event" (Seharian penuh)
+          const startStr = dueDate.replace(/-/g, "");
+          const dateObj = new Date(dueDate);
+          dateObj.setDate(dateObj.getDate() + 1); // Google Calendar meminta tanggal akhir eksklusif (H+1)
+          const endStr = dateObj.toISOString().split('T')[0].replace(/-/g, "");
+          dates = `&dates=${startStr}/${endStr}`;
+        }
+      } catch (e) {
+        console.error("Gagal memformat tanggal untuk GCal", e);
+      }
+    }
+
+    // Setel pengulangan (Recurrence Rule / RRULE)
+    let rrule = "";
+    if (recurrence && recurrence !== "none") {
+      rrule = `&recur=RRULE:FREQ=${recurrence.toUpperCase()}`;
+    }
+
+    // Buka tab baru menuju Google Calendar Event Creator
+    const url = `${baseUrl}&text=${eventText}&details=${eventDetails}${dates}${rrule}`;
+    window.open(url, '_blank');
+  };
+  // -----------------------------------
+
   const handleUpdate = async () => {
     if (!title.trim()) {
       showAlert("Perhatian", "Judul tugas tidak boleh kosong!");
@@ -147,9 +203,15 @@ export default function EditTodoPage() {
           </Link>
           <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Edit Tugas</span>
         </div>
-        <Button variant="ghost" size="icon" onClick={handleDelete} className="text-destructive hover:bg-destructive/10 rounded-full transition-colors">
-          <Trash2 className="w-5 h-5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          {/* TOMBOL GOOGLE CALENDAR SYNC */}
+          <Button variant="ghost" size="icon" onClick={handleSyncCalendar} className="text-blue-500 hover:bg-blue-500/10 rounded-full transition-colors" title="Simpan ke Google Calendar">
+            <CalendarPlus className="w-5 h-5" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={handleDelete} className="text-destructive hover:bg-destructive/10 rounded-full transition-colors" title="Hapus Tugas">
+            <Trash2 className="w-5 h-5" />
+          </Button>
+        </div>
       </div>
 
       <div className="px-5 space-y-6 mt-2">

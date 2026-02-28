@@ -1,15 +1,13 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import { Header } from "@/components/layout/header";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/lib/auth-context";
 import { ChatWidget } from "@/components/ui/chat-widget";
-import { GlobalModal } from "@/components/ui/global-modal"; // <-- Import Global Modal
+import { GlobalModal } from "@/components/ui/global-modal"; 
 import { Analytics } from "@vercel/analytics/next"; 
-
-const inter = Inter({ subsets: ["latin"] });
+import { SettingsProvider } from "@/components/providers/settings-provider"; // <-- Import Settings Provider
 
 export const metadata: Metadata = {
   title: "Nexa - Super Note AI",
@@ -32,27 +30,28 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id" suppressHydrationWarning>
-      <body className={`${inter.className} antialiased pb-16 md:pb-0`}>
+      {/* Menggunakan font-sans bawaan Tailwind dan efek transisi smooth saat ganti tema/warna */}
+      <body className="font-sans antialiased pb-16 md:pb-0 transition-colors duration-300">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
         >
-          <AuthProvider>
-            <Header />
-            {/* max-w-lg mx-auto membuat tampilan tetap seperti ukuran HP walau dibuka di Desktop */}
-            <main className="min-h-screen bg-background max-w-lg mx-auto relative">
-              {children}
-            </main>
-            <ChatWidget />
-            <BottomNav />
-            {/* Render Global Modal di sini agar bisa dipanggil dari seluruh aplikasi */}
-            <GlobalModal /> 
-          </AuthProvider>
+          {/* Settings Provider membungkus aplikasi untuk mendengarkan perubahan font & aksen warna */}
+          <SettingsProvider>
+            <AuthProvider>
+              <Header />
+              <main className="min-h-screen bg-background max-w-lg mx-auto relative">
+                {children}
+              </main>
+              <ChatWidget />
+              <BottomNav />
+              <GlobalModal /> 
+            </AuthProvider>
+          </SettingsProvider>
         </ThemeProvider>
         
-        {/* Komponen Analytics diletakkan di dalam body agar memantau seluruh halaman */}
         <Analytics />
       </body>
     </html>
