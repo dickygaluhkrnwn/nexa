@@ -11,8 +11,8 @@ import {
   Tag as TagIcon, Lock, Unlock, 
   Sparkles, X, Download, FileText, File, Printer,
   Camera, Image as ImageIcon, Mic,
-  MessageSquare, Send, Bot, Network, 
-  Share2, Trash2 
+  MessageSquare, Send, Bot, Network,
+  ZoomIn, ZoomOut, Maximize, Share2, Trash2 // <-- Perbaikan Import di sini
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
@@ -72,6 +72,7 @@ export default function EditNotePage() {
   const [isGeneratingMindMap, setIsGeneratingMindMap] = useState(false);
   const [mindMapCode, setMindMapCode] = useState<string | null>(null);
   const mindMapRef = useRef<HTMLDivElement>(null);
+  const [zoomLevel, setZoomLevel] = useState(1); // <-- TAMBAHAN STATE ZOOM
 
   // Auto-scroll ke pesan terbaru
   useEffect(() => {
@@ -125,6 +126,7 @@ export default function EditNotePage() {
           setContent(noteData.content);
           setTags(noteData.tags || []);
           setIsHidden((noteData as any).isHidden || false);
+          setMindMapCode((noteData as any).mindmapCode || null); // <-- TAMBAHAN: Load Mind Map jika ada
         } else {
           showAlert("Akses Ditolak", "Catatan tidak ditemukan atau kamu tidak memiliki akses.");
           router.push("/");
@@ -545,6 +547,7 @@ export default function EditNotePage() {
         content: content,
         tags: finalTags,
         isHidden: isHidden,
+        mindmapCode: mindMapCode, // <-- TAMBAHAN: Simpan mind map ke database
       } as any);
       
       router.push("/notes"); 
@@ -737,11 +740,28 @@ export default function EditNotePage() {
           </div>
           
           <div className="flex-1 overflow-auto p-4 flex items-center justify-center w-full h-full relative">
-            <p className="absolute top-4 left-0 right-0 text-center text-xs text-muted-foreground">
-              Tip: Kamu bisa melakukan Zoom/Pinch di area ini.
-            </p>
-            {/* Tempat hasil render Mermaid JS */}
-            <div ref={mindMapRef} className="w-full max-w-4xl flex justify-center mt-6" />
+            
+            {/* KONTROL ZOOM PADA MIND MAP */}
+            <div className="absolute bottom-6 right-6 z-50 flex gap-2 bg-background/80 backdrop-blur-md p-1.5 rounded-2xl border border-border shadow-lg">
+              <Button variant="ghost" size="icon" onClick={() => setZoomLevel(prev => Math.max(prev - 0.2, 0.4))} className="rounded-xl hover:bg-muted">
+                <ZoomOut className="w-4 h-4" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setZoomLevel(1)} className="rounded-xl hover:bg-muted font-bold text-xs w-10">
+                {Math.round(zoomLevel * 100)}%
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setZoomLevel(prev => Math.min(prev + 0.2, 3))} className="rounded-xl hover:bg-muted">
+                <ZoomIn className="w-4 h-4" />
+              </Button>
+            </div>
+
+            {/* Tempat hasil render Mermaid JS dengan transformasi Scale */}
+            <div className="w-full h-full flex items-center justify-center min-h-[500px] min-w-[500px]">
+              <div 
+                ref={mindMapRef} 
+                className="transition-transform duration-200 ease-out origin-center"
+                style={{ transform: `scale(${zoomLevel})` }}
+              />
+            </div>
           </div>
         </div>
       )}

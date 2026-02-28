@@ -13,7 +13,6 @@ import {
   updateDoc
 } from "firebase/firestore";
 
-// --- TIPE DATA BARU UNTUK SUB-TUGAS ---
 export interface SubTask {
   id: string;
   text: string;
@@ -22,7 +21,7 @@ export interface SubTask {
 
 export interface NoteData {
   title: string;
-  content: string; // Format HTML dari Tiptap
+  content: string; 
   tags: string[];
   isTodo: boolean;
   dueDate?: string | null;
@@ -30,7 +29,10 @@ export interface NoteData {
   recurrence?: string; 
   isHidden?: boolean; 
   isPinned?: boolean; 
-  subTasks?: SubTask[]; // <-- Tambahan untuk fitur Checklist / Sub-Tasks
+  isCompleted?: boolean;
+  subTasks?: SubTask[]; 
+  status?: 'todo' | 'in-progress' | 'done'; // <-- Tambahan untuk KANBAN BOARD
+  mindmapCode?: string | null; // <-- TAMBAHAN: Menyimpan sintaks Mind Map
   userId: string;
 }
 

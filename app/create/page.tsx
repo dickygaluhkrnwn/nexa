@@ -11,7 +11,8 @@ import {
   Tag as TagIcon, Lock, Unlock, 
   Sparkles, X, Download, FileText, File, Printer,
   Camera, Image as ImageIcon, Mic,
-  MessageSquare, Send, Bot, Network 
+  MessageSquare, Send, Bot, Network,
+  ZoomIn, ZoomOut, Maximize // <-- TAMBAHAN ICON ZOOM
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
@@ -67,6 +68,7 @@ export default function CreateNotePage() {
   const [isGeneratingMindMap, setIsGeneratingMindMap] = useState(false);
   const [mindMapCode, setMindMapCode] = useState<string | null>(null);
   const mindMapRef = useRef<HTMLDivElement>(null);
+  const [zoomLevel, setZoomLevel] = useState(1); // <-- TAMBAHAN STATE ZOOM
 
   // Auto-scroll ke pesan terbaru
   useEffect(() => {
@@ -478,6 +480,7 @@ export default function CreateNotePage() {
         isTodo: false, 
         dueDate: null, 
         isHidden: isHidden,
+        mindmapCode: mindMapCode, // <-- TAMBAHKAN BARIS INI AGAR MIND MAP TERSIMPAN
         userId: user.uid,
       } as any);
       
@@ -648,11 +651,28 @@ export default function CreateNotePage() {
           </div>
           
           <div className="flex-1 overflow-auto p-4 flex items-center justify-center w-full h-full relative">
-            <p className="absolute top-4 left-0 right-0 text-center text-xs text-muted-foreground">
-              Tip: Kamu bisa melakukan Zoom/Pinch di area ini.
-            </p>
-            {/* Tempat hasil render Mermaid JS */}
-            <div ref={mindMapRef} className="w-full max-w-4xl flex justify-center mt-6" />
+            
+            {/* KONTROL ZOOM PADA MIND MAP */}
+            <div className="absolute bottom-6 right-6 z-50 flex gap-2 bg-background/80 backdrop-blur-md p-1.5 rounded-2xl border border-border shadow-lg">
+              <Button variant="ghost" size="icon" onClick={() => setZoomLevel(prev => Math.max(prev - 0.2, 0.4))} className="rounded-xl hover:bg-muted">
+                <ZoomOut className="w-4 h-4" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setZoomLevel(1)} className="rounded-xl hover:bg-muted font-bold text-xs w-10">
+                {Math.round(zoomLevel * 100)}%
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setZoomLevel(prev => Math.min(prev + 0.2, 3))} className="rounded-xl hover:bg-muted">
+                <ZoomIn className="w-4 h-4" />
+              </Button>
+            </div>
+
+            {/* Tempat hasil render Mermaid JS dengan transformasi Scale */}
+            <div className="w-full h-full flex items-center justify-center min-h-[500px] min-w-[500px]">
+              <div 
+                ref={mindMapRef} 
+                className="transition-transform duration-200 ease-out origin-center"
+                style={{ transform: `scale(${zoomLevel})` }}
+              />
+            </div>
           </div>
         </div>
       )}
