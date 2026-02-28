@@ -1,12 +1,25 @@
 "use client";
 
-import { Moon, Sun, Menu, X, Settings, Download, LogOut, AlertCircle, Heart, Info, MessageSquareQuote } from "lucide-react";
+import { 
+  Moon, Sun, Menu, X, Settings, Download, LogOut, 
+  AlertCircle, Heart, Info, MessageSquareQuote, 
+  Bell, BellRing, CalendarClock, AlertTriangle, Check
+} from "lucide-react";
 import { useTheme } from "next-themes";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { getUserNotes } from "@/lib/notes-service";
+
+interface NotificationItem {
+  id: string;
+  title: string;
+  message: string;
+  type: "overdue" | "today";
+  todoId: string;
+}
 
 export function Header() {
   const { theme, setTheme } = useTheme();
@@ -14,6 +27,11 @@ export function Header() {
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   
+  // --- STATE NOTIFIKASI ---
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | "default">("default");
+
   // State untuk mendeteksi arah scroll
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
@@ -29,81 +47,139 @@ export function Header() {
     type: "alert" | "confirm";
     onConfirm?: () => void;
   }>({
-    isOpen: false,
-    title: "",
-    message: "",
-    type: "alert"
+    isOpen: false, title: "", message: "", type: "alert"
   });
 
   const showConfirm = (title: string, message: string, onConfirm: () => void) => {
     setDialog({ isOpen: true, title, message, type: "confirm", onConfirm });
   };
+  const showAlert = (title: string, message: string) => {
+    setDialog({ isOpen: true, title, message, type: "alert" });
+  };
   // ---------------------------------
 
-  // Mencegah hydration error pada tema & Listen ke event install PWA
   useEffect(() => {
     setMounted(true);
+    
+    // Cek status izin notifikasi HP/Desktop saat ini
+    if ('Notification' in window) {
+      setPushPermission(Notification.permission);
+    }
 
-    // Tangkap event install prompt dari browser
     const handleBeforeInstallPrompt = (e: any) => {
-      // Mencegah browser menampilkan prompt install otomatis
       e.preventDefault();
-      // Simpan event-nya untuk dipicu nanti saat tombol diklik
       setDeferredPrompt(e);
     };
-
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-    };
+    return () => window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
   }, []);
 
-  // Logika Scroll untuk menyembunyikan/menampilkan header
+  // --- LOGIKA MENGAMBIL DATA NOTIFIKASI TO-DO ---
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      if (!user) {
+        setNotifications([]);
+        return;
+      }
+      try {
+        const notes = await getUserNotes(user.uid);
+        const todos = notes.filter((n: any) => n.isTodo && !n.isCompleted && n.dueDate);
+        
+        // Ambil tanggal hari ini (Format YYYY-MM-DD lokal)
+        const today = new Date();
+        const offset = today.getTimezoneOffset() * 60000;
+        const todayStr = (new Date(today.getTime() - offset)).toISOString().split('T')[0];
+
+        const newNotifs: NotificationItem[] = [];
+
+        todos.forEach((todo: any) => {
+          if (todo.dueDate < todayStr) {
+            newNotifs.push({
+              id: `notif-${todo.id}`,
+              title: "Tugas Terlewat!",
+              message: `Tugas "${todo.title}" sudah melewati tenggat waktu.`,
+              type: "overdue",
+              todoId: todo.id
+            });
+          } else if (todo.dueDate === todayStr) {
+            newNotifs.push({
+              id: `notif-${todo.id}`,
+              title: "Tenggat Hari Ini",
+              message: `Jangan lupa selesaikan tugas "${todo.title}" hari ini.`,
+              type: "today",
+              todoId: todo.id
+            });
+          }
+        });
+
+        setNotifications(newNotifs);
+      } catch (error) {
+        console.error("Gagal memuat notifikasi", error);
+      }
+    };
+
+    fetchNotifications();
+    // Memperbarui notifikasi setiap kali menu dibuka atau user berubah
+  }, [user, isNotifOpen]);
+  // ----------------------------------------------
+
+  // --- FUNGSI MEMINTA IZIN NOTIFIKASI SISTEM (HP/DESKTOP) ---
+  const handleRequestPushPermission = async () => {
+    if (!('Notification' in window)) {
+      showAlert("Tidak Didukung", "Browser atau perangkat kamu tidak mendukung notifikasi sistem.");
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setPushPermission(permission);
+
+      if (permission === 'granted') {
+        // Tembakkan notifikasi percobaan
+        new Notification("Nexa AI", {
+          body: "Yey! Notifikasi berhasil diaktifkan. Kamu tidak akan melewatkan tugas lagi.",
+          icon: "/icon-192x192.png" // Pastikan kamu punya icon PWA nanti
+        });
+      } else {
+        showAlert("Izin Ditolak", "Kamu menolak izin notifikasi. Kamu bisa mengubahnya nanti di pengaturan browser.");
+      }
+    } catch (error) {
+      console.error("Error requesting permission", error);
+    }
+  };
+  // ----------------------------------------------------------
+
+  // Logika Scroll untuk Header
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
-      
-      // Sembunyikan jika scroll ke bawah lebih dari 50px
       if (currentScrollY > lastScrollY && currentScrollY > 50) {
         setIsVisible(false);
-        setIsMenuOpen(false); // Tutup menu jika sedang terbuka saat di-scroll
+        setIsMenuOpen(false); 
+        setIsNotifOpen(false);
       } else {
-        // Tampilkan kembali jika scroll ke atas
         setIsVisible(true);
       }
       setLastScrollY(currentScrollY);
     };
-
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, [lastScrollY]);
 
-  // Fungsi untuk memicu proses instalasi PWA
   const handleInstallClick = async () => {
     if (deferredPrompt) {
-      // Tampilkan prompt instalasi bawaan browser
       deferredPrompt.prompt();
-      // Tunggu respons dari user (diterima atau ditolak)
       const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        // Jika diinstal, sembunyikan tombol
-        setDeferredPrompt(null);
-      }
+      if (outcome === 'accepted') setDeferredPrompt(null);
     }
     setIsMenuOpen(false);
   };
 
-  // Fungsi untuk logout dengan Custom Modal
   const handleLogout = () => {
-    setIsMenuOpen(false); // Tutup menu dropdown terlebih dahulu
-    showConfirm(
-      "Keluar Akun?", 
-      "Apakah kamu yakin ingin keluar dari sesi Nexa saat ini?", 
-      async () => {
-        await logout();
-      }
-    );
+    setIsMenuOpen(false);
+    showConfirm("Keluar Akun?", "Apakah kamu yakin ingin keluar dari sesi Nexa saat ini?", async () => {
+      await logout();
+    });
   };
 
   return (
@@ -115,128 +191,178 @@ export function Header() {
         )}
       >
         <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto relative">
+          
           <div className="flex items-center gap-2">
-            {/* Logo Nexa */}
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400 to-purple-600 flex items-center justify-center text-white font-bold text-lg">
               N
             </div>
             <span className="font-bold text-lg tracking-tight">Nexa</span>
           </div>
 
-          {/* Tombol Menu Toggle */}
-          <button
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="p-2 rounded-full hover:bg-muted transition-colors"
-          >
-            {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
-
-          {/* Dropdown Menu */}
-          {isMenuOpen && (
-            <div className="absolute top-14 right-4 mt-2 w-48 rounded-2xl border border-border bg-card shadow-lg py-2 animate-in fade-in slide-in-from-top-2">
-              <div className="px-4 py-2 border-b border-border/50 mb-1 flex items-center gap-2">
-                <Settings className="w-4 h-4 text-muted-foreground" />
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Pengaturan</p>
-              </div>
-              
+          <div className="flex items-center gap-1">
+            {/* Tombol Notifikasi */}
+            {user && (
               <button
                 onClick={() => {
-                  setTheme(theme === "light" ? "dark" : "light");
+                  setIsNotifOpen(!isNotifOpen);
+                  setIsMenuOpen(false); // Tutup menu lain jika terbuka
                 }}
-                className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors"
+                className="relative p-2 rounded-full hover:bg-muted transition-colors"
               >
-                {mounted && theme === "dark" ? (
+                {notifications.length > 0 ? (
                   <>
-                    <Sun className="h-4 w-4 mr-3 text-orange-400" />
-                    <span className="font-medium">Mode Terang</span>
+                    <BellRing className="h-5 w-5 text-orange-500 animate-pulse" />
+                    <span className="absolute top-1 right-1.5 flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500 border border-background"></span>
+                    </span>
                   </>
                 ) : (
-                  <>
-                    <Moon className="h-4 w-4 mr-3 text-blue-500" />
-                    <span className="font-medium">Mode Gelap</span>
-                  </>
+                  <Bell className="h-5 w-5 text-muted-foreground" />
                 )}
               </button>
+            )}
 
-              {/* Tambahan Menu Akses Halaman About */}
-              <Link href="/about" onClick={() => setIsMenuOpen(false)}>
-                <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium border-t border-border/50">
-                  <Info className="h-4 w-4 mr-3 text-blue-500" />
-                  <span>Tentang Aplikasi</span>
+            {/* Tombol Menu Toggle */}
+            <button
+              onClick={() => {
+                setIsMenuOpen(!isMenuOpen);
+                setIsNotifOpen(false); // Tutup panel notif jika menu dibuka
+              }}
+              className="p-2 rounded-full hover:bg-muted transition-colors"
+            >
+              {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+          </div>
+
+          {/* PANEL NOTIFIKASI DROPDOWN */}
+          {isNotifOpen && user && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setIsNotifOpen(false)}></div>
+              <div className="absolute top-14 right-4 mt-2 w-[300px] max-w-[calc(100vw-32px)] rounded-2xl border border-border bg-card shadow-2xl py-2 animate-in fade-in slide-in-from-top-2 z-50 overflow-hidden flex flex-col max-h-[80vh]">
+                <div className="px-4 py-3 border-b border-border/50 bg-muted/30 flex items-center justify-between sticky top-0">
+                  <p className="font-bold text-sm">Notifikasi</p>
+                  <div className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
+                    {notifications.length} Baru
+                  </div>
                 </div>
-              </Link>
 
-              {/* Tambahan Menu Akses Halaman Feedback */}
-              <Link href="/feedback" onClick={() => setIsMenuOpen(false)}>
-                <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium border-t border-border/50">
-                  <MessageSquareQuote className="h-4 w-4 mr-3 text-green-500" />
-                  <span>Kirim Masukan</span>
+                <div className="overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <div className="p-8 text-center text-muted-foreground flex flex-col items-center">
+                      <Check className="w-8 h-8 mb-2 opacity-20" />
+                      <p className="text-sm">Semua tugas aman terkendali!</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col">
+                      {notifications.map((notif) => (
+                        <Link 
+                          key={notif.id} 
+                          href={`/edit-todo/${notif.todoId}`}
+                          onClick={() => setIsNotifOpen(false)}
+                          className="flex items-start gap-3 p-4 border-b border-border/50 hover:bg-muted/50 transition-colors"
+                        >
+                          <div className={`p-2 rounded-full shrink-0 ${notif.type === 'overdue' ? 'bg-destructive/10 text-destructive' : 'bg-orange-500/10 text-orange-500'}`}>
+                            {notif.type === 'overdue' ? <AlertTriangle className="w-4 h-4" /> : <CalendarClock className="w-4 h-4" />}
+                          </div>
+                          <div>
+                            <p className={`text-sm font-bold ${notif.type === 'overdue' ? 'text-destructive' : 'text-orange-500'}`}>{notif.title}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notif.message}</p>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </Link>
 
-              {/* Tambahan Menu Akses Halaman Funding */}
-              <Link href="/funding" onClick={() => setIsMenuOpen(false)}>
-                <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-rose-500/10 transition-colors text-rose-500 font-bold border-t border-border/50">
-                  <Heart className="h-4 w-4 mr-3 fill-rose-500 animate-pulse" />
-                  <span>Dukung Nexa</span>
+                {/* Banner Setup Push Notification */}
+                {pushPermission !== 'granted' && (
+                  <div className="p-3 bg-blue-500/5 border-t border-blue-500/10 mt-auto">
+                    <p className="text-[10px] text-muted-foreground mb-2 text-center">Nyalakan notifikasi perangkat agar tidak ketinggalan jadwal.</p>
+                    <Button onClick={handleRequestPushPermission} size="sm" className="w-full h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
+                      <BellRing className="w-3 h-3 mr-2" /> Aktifkan Notifikasi HP
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* PANEL MENU DROPDOWN (PENGATURAN) */}
+          {isMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)}></div>
+              <div className="absolute top-14 right-4 mt-2 w-52 rounded-2xl border border-border bg-card shadow-2xl py-2 animate-in fade-in slide-in-from-top-2 z-50">
+                <div className="px-4 py-2 border-b border-border/50 mb-1 flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-muted-foreground" />
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Pengaturan</p>
                 </div>
-              </Link>
-              {/* --------------------------------- */}
-
-              {/* Tombol Install PWA: Hanya muncul jika deferredPrompt tersedia (aplikasi belum diinstal) */}
-              {deferredPrompt && (
+                
                 <button
-                  onClick={handleInstallClick}
-                  className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors text-primary font-medium border-t border-border/50"
+                  onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+                  className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors"
                 >
-                  <Download className="h-4 w-4 mr-3" />
-                  <span>Unduh Aplikasi</span>
+                  {mounted && theme === "dark" ? (
+                    <><Sun className="h-4 w-4 mr-3 text-orange-400" /><span className="font-medium">Mode Terang</span></>
+                  ) : (
+                    <><Moon className="h-4 w-4 mr-3 text-blue-500" /><span className="font-medium">Mode Gelap</span></>
+                  )}
                 </button>
-              )}
 
-              {/* Tombol Logout: Hanya muncul jika user sudah login */}
-              {user && (
-                <button
-                  onClick={handleLogout}
-                  className="w-full flex items-center px-4 py-3 text-sm hover:bg-destructive/10 transition-colors text-destructive font-medium border-t border-border/50"
-                >
-                  <LogOut className="h-4 w-4 mr-3" />
-                  <span>Keluar Akun</span>
-                </button>
-              )}
-            </div>
+                <Link href="/about" onClick={() => setIsMenuOpen(false)}>
+                  <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium border-t border-border/50">
+                    <Info className="h-4 w-4 mr-3 text-blue-500" /><span>Tentang Aplikasi</span>
+                  </div>
+                </Link>
+
+                <Link href="/feedback" onClick={() => setIsMenuOpen(false)}>
+                  <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium border-t border-border/50">
+                    <MessageSquareQuote className="h-4 w-4 mr-3 text-green-500" /><span>Kirim Masukan</span>
+                  </div>
+                </Link>
+
+                <Link href="/funding" onClick={() => setIsMenuOpen(false)}>
+                  <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-rose-500/10 transition-colors text-rose-500 font-bold border-t border-border/50">
+                    <Heart className="h-4 w-4 mr-3 fill-rose-500 animate-pulse" /><span>Dukung Nexa</span>
+                  </div>
+                </Link>
+
+                {deferredPrompt && (
+                  <button onClick={handleInstallClick} className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors text-primary font-medium border-t border-border/50">
+                    <Download className="h-4 w-4 mr-3" /><span>Unduh Aplikasi</span>
+                  </button>
+                )}
+
+                {user && (
+                  <button onClick={handleLogout} className="w-full flex items-center px-4 py-3 text-sm hover:bg-destructive/10 transition-colors text-destructive font-medium border-t border-border/50">
+                    <LogOut className="h-4 w-4 mr-3" /><span>Keluar Akun</span>
+                  </button>
+                )}
+              </div>
+            </>
           )}
         </div>
       </header>
 
-      {/* CUSTOM DIALOG MODAL (Ditaruh di luar header agar tidak terpengaruh animasi transform header) */}
+      {/* CUSTOM DIALOG MODAL */}
       {dialog.isOpen && (
         <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 text-center flex flex-col items-center">
-            
             <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 ${dialog.type === 'confirm' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>
               <AlertCircle className="w-7 h-7" />
             </div>
-            
             <h3 className="font-bold text-xl mb-2">{dialog.title}</h3>
             <p className="text-sm text-muted-foreground mb-6 leading-relaxed">{dialog.message}</p>
-            
             <div className="flex gap-3 w-full">
               {dialog.type === "confirm" && (
-                <Button 
-                  variant="outline" 
-                  className="flex-1 rounded-xl h-11 border-border bg-transparent" 
-                  onClick={() => setDialog(prev => ({ ...prev, isOpen: false }))}
-                >
+                <Button variant="outline" className="flex-1 rounded-xl h-11 border-border bg-transparent" onClick={() => setDialog(prev => ({ ...prev, isOpen: false }))}>
                   Batal
                 </Button>
               )}
               <Button 
                 className={`flex-1 rounded-xl h-11 text-white shadow-md ${dialog.type === 'confirm' ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'}`} 
                 onClick={() => {
-                  if (dialog.type === "confirm" && dialog.onConfirm) {
-                    dialog.onConfirm();
-                  }
+                  if (dialog.type === "confirm" && dialog.onConfirm) dialog.onConfirm();
                   setDialog(prev => ({ ...prev, isOpen: false }));
                 }}
               >
