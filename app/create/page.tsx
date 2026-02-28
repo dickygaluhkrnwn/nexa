@@ -10,13 +10,26 @@ import {
   Loader2, Save, ArrowLeft, Wand2, 
   Tag as TagIcon, Lock, Unlock, 
   Sparkles, X, Download, FileText, File, Printer,
-  Camera, Image as ImageIcon, Mic, AlertCircle 
+  Camera, Image as ImageIcon, Mic,
+  MessageSquare, Send, Bot, Network 
 } from "lucide-react";
 import Link from "next/link";
+import { useModal } from "@/hooks/use-modal"; 
+import { useGemini } from "@/hooks/use-gemini"; 
+import { useTheme } from "next-themes";
+import mermaid from "mermaid"; 
+
+interface ChatMessage {
+  role: "user" | "ai";
+  content: string;
+}
 
 export default function CreateNotePage() {
   const { user } = useAuth();
   const router = useRouter();
+  const { showAlert, showQuotaAlert } = useModal(); // Memastikan showQuotaAlert diimpor
+  const { callAI } = useGemini(); 
+  const { theme } = useTheme();
   
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -33,6 +46,7 @@ export default function CreateNotePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
+  const [isFormatting, setIsFormatting] = useState(false); 
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [editorKey, setEditorKey] = useState(0); 
 
@@ -42,38 +56,59 @@ export default function CreateNotePage() {
   const [isScanning, setIsScanning] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
 
-  // --- STATE CUSTOM DIALOG MODAL ---
-  const [dialog, setDialog] = useState<{
-    isOpen: boolean;
-    title: string;
-    message: string;
-    type: "alert" | "confirm" | "quota"; // Tambah tipe quota
-    onConfirm?: () => void;
-  }>({
-    isOpen: false,
-    title: "",
-    message: "",
-    type: "alert"
-  });
+  // --- STATE CHAT DENGAN CATATAN (RAG) ---
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const showAlert = (title: string, message: string, onConfirm?: () => void) => {
-    setDialog({ isOpen: true, title, message, type: "alert", onConfirm });
-  };
+  // --- STATE & REFERENCE UNTUK MIND MAP ---
+  const [isGeneratingMindMap, setIsGeneratingMindMap] = useState(false);
+  const [mindMapCode, setMindMapCode] = useState<string | null>(null);
+  const mindMapRef = useRef<HTMLDivElement>(null);
 
-  const showConfirm = (title: string, message: string, onConfirm: () => void) => {
-    setDialog({ isOpen: true, title, message, type: "confirm", onConfirm });
-  };
+  // Auto-scroll ke pesan terbaru
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages, isChatLoading]);
 
-  // Fungsi khusus untuk menampilkan modal Limit Kuota
-  const showQuotaAlert = () => {
-    setDialog({ 
-      isOpen: true, 
-      title: "Limit AI Harian Tercapai 🚀", 
-      message: "Nexa menggunakan sistem AI gratis yang memiliki batas harian. Bantu kami meng-upgrade server agar fitur AI ini bisa terus dinikmati tanpa batas!", 
-      type: "quota" 
-    });
-  };
-  // ---------------------------------
+  // Efek untuk Render Mermaid JS
+  useEffect(() => {
+    if (mindMapCode && mindMapRef.current) {
+      try {
+        mermaid.initialize({ 
+          startOnLoad: false, 
+          theme: theme === 'dark' ? 'dark' : 'default',
+          securityLevel: 'loose' 
+        });
+        
+        // Bersihkan kontainer sebelum merender yang baru
+        mindMapRef.current.innerHTML = '';
+        
+        // Render sintaks mermaid
+        mermaid.render('mermaid-mindmap-svg', mindMapCode).then((result) => {
+          if (mindMapRef.current) {
+            mindMapRef.current.innerHTML = result.svg;
+          }
+        }).catch((err) => {
+          console.error("Mermaid async render error", err);
+          throw err;
+        });
+
+      } catch (err) {
+        console.error("Mermaid initialization error", err);
+        if (mindMapRef.current) {
+           mindMapRef.current.innerHTML = `
+             <div class="text-center text-destructive p-4 border border-destructive/20 rounded-xl bg-destructive/10">
+               <p class="font-bold mb-1">Gagal Merender Mind Map</p>
+               <p class="text-xs">AI memberikan struktur diagram yang tidak valid. Silakan coba generate ulang.</p>
+             </div>
+           `;
+        }
+      }
+    }
+  }, [mindMapCode, theme]);
 
   if (!user) {
     return (
@@ -171,32 +206,31 @@ export default function CreateNotePage() {
       setTimeout(() => document.body.removeChild(iframe), 1000);
     }, 250);
   };
-  // ---------------------------------------------
 
-  // --- API AI ---
-  const callAI = async (payload: any) => {
+  // --- LOGIKA AI SUPERPOWERS ---
+  const handleAutoFormat = async () => {
+    if (!content.replace(/<[^>]+>/g, '').trim()) {
+      showAlert("Perhatian", "Teks masih kosong! Ketik sesuatu dulu untuk disulap AI.");
+      return;
+    }
+
+    setIsFormatting(true);
     try {
-      const res = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json().catch(() => ({})); 
-      
-      if (!res.ok) {
-        // Cek secara spesifik jika terjadi error Kuota / 429
-        if (res.status === 429 || data.error?.toLowerCase().includes("quota") || data.error?.includes("429")) {
-          throw new Error("QUOTA_EXCEEDED");
-        }
-        throw new Error(data.error || "Gagal memanggil AI.");
+      const result = await callAI({ action: "auto-format", content: content });
+      if (result) {
+        const cleanHtml = result.replace(/```html/g, '').replace(/```/g, '').trim();
+        setContent(cleanHtml);
+        setEditorKey(prev => prev + 1); 
+        showAlert("Berhasil! ✨", "Teks acakmu sudah disulap menjadi rapi dan terstruktur.");
       }
-      return data.result;
     } catch (error: any) {
-      // PERBAIKAN: Lempar error QUOTA_EXCEEDED sebelum console.error agar tidak muncul layar error merah
-      if (error.message === "QUOTA_EXCEEDED") throw error;
-      
-      console.error("AI Fetch Error:", error);
-      throw new Error(error.message || "Terjadi kesalahan koneksi AI.");
+       if (error.message === "QUOTA_EXCEEDED") {
+        showQuotaAlert();
+      } else {
+        console.error("Gagal merapikan teks", error);
+      }
+    } finally {
+      setIsFormatting(false);
     }
   };
 
@@ -215,7 +249,7 @@ export default function CreateNotePage() {
       if (error.message === "QUOTA_EXCEEDED") {
         showQuotaAlert();
       } else {
-        showAlert("Gagal AI", `Gagal merangkum: ${error.message}`);
+        console.error("Gagal merangkum", error);
       }
     } finally {
       setIsSummarizing(false);
@@ -238,22 +272,91 @@ export default function CreateNotePage() {
         setTags(uniqueTags);
       }
     } catch (error: any) {
-      if (error.message === "QUOTA_EXCEEDED") {
+       if (error.message === "QUOTA_EXCEEDED") {
         showQuotaAlert();
       } else {
-        showAlert("Gagal AI", "Gagal menebak tag. Coba lagi nanti.");
+        console.error("Gagal menebak tag", error);
       }
     } finally {
       setIsGeneratingTags(false);
     }
   };
 
+  // --- LOGIKA MIND MAP ---
+  const handleGenerateMindMap = async () => {
+    const plainText = content.replace(/<[^>]+>/g, ' ').trim();
+    if (!plainText && !title) {
+      showAlert("Perhatian", "Catatan masih kosong! Tulis sesuatu dulu untuk dijadikan Peta Konsep.");
+      return;
+    }
+
+    setIsGeneratingMindMap(true);
+    try {
+      const result = await callAI({ action: "mindmap", content: `Judul: ${title}\n\nIsi: ${plainText}` });
+      if (result) {
+        const cleanCode = result.replace(/```mermaid/g, '').replace(/```/g, '').trim();
+        setMindMapCode(cleanCode);
+      }
+    } catch (error: any) {
+      if (error.message === "QUOTA_EXCEEDED") {
+        showQuotaAlert();
+      } else {
+        console.error("Gagal membuat mind map", error);
+      }
+    } finally {
+      setIsGeneratingMindMap(false);
+    }
+  };
+  // -----------------------
+
+  // --- LOGIKA CHAT DENGAN CATATAN ---
+  const formatMessageContent = (text: string) => {
+    let formattedText = text;
+    formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    formattedText = formattedText.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    formattedText = formattedText.replace(/\n/g, '<br />');
+    return formattedText;
+  };
+
+  const handleSendChat = async () => {
+    if (!chatInput.trim()) return;
+
+    const userMessage = chatInput.trim();
+    setChatInput("");
+    setChatMessages(prev => [...prev, { role: "user", content: userMessage }]);
+    setIsChatLoading(true);
+
+    try {
+      const plainText = content.replace(/<[^>]+>/g, ' ').trim();
+      const contextStr = `Judul: ${title || 'Tanpa Judul'}\n\nIsi Catatan:\n${plainText}`;
+      
+      const result = await callAI({ 
+        action: "chat", 
+        prompt: userMessage,
+        context: contextStr
+      });
+
+      setChatMessages(prev => [...prev, { role: "ai", content: result }]);
+    } catch (error: any) {
+      if (error.message === "QUOTA_EXCEEDED") {
+        showQuotaAlert();
+        // Remove the user message if quota exceeded to not leave it hanging
+        setChatMessages(prev => prev.slice(0, -1));
+      } else {
+        setChatMessages(prev => [...prev, { role: "ai", content: "Aduh, aku gagal merespons permintaanmu. Coba lagi ya!" }]);
+      }
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+  // -----------------------------
+
   // --- FUNGSI SCAN GAMBAR KE TEKS (OCR) ---
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    e.target.value = ""; // Reset input
+    e.target.value = ""; 
     setIsScanning(true);
 
     try {
@@ -275,14 +378,14 @@ export default function CreateNotePage() {
             showAlert("Info AI", "AI tidak menemukan teks pada gambar ini.");
           } else {
             setContent((prev) => prev + (prev ? "<br><br>" : "") + cleanHtml);
-            setEditorKey(prev => prev + 1); // FORCE TIPTAP UPDATE
+            setEditorKey(prev => prev + 1); 
           }
 
         } catch (apiError: any) {
           if (apiError.message === "QUOTA_EXCEEDED") {
             showQuotaAlert();
           } else {
-            showAlert("Gagal Scan", `Gagal memproses gambar: ${apiError.message}`);
+             console.error("Gagal scan OCR", apiError);
           }
         } finally {
           setIsScanning(false);
@@ -304,7 +407,7 @@ export default function CreateNotePage() {
     }
 
     const recognition = new SpeechRecognition();
-    recognition.lang = 'id-ID'; // Set bahasa Indonesia
+    recognition.lang = 'id-ID'; 
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
 
@@ -314,7 +417,7 @@ export default function CreateNotePage() {
       const transcript = event.results[0][0].transcript;
       if (transcript) {
         setContent((prev) => prev + (prev ? " " : "") + transcript);
-        setEditorKey(prev => prev + 1); // FORCE TIPTAP UPDATE
+        setEditorKey(prev => prev + 1); 
       }
     };
 
@@ -325,10 +428,8 @@ export default function CreateNotePage() {
     };
 
     recognition.onend = () => setIsRecording(false);
-
     recognition.start();
   };
-  // ---------------------------------------------
 
   // --- EFEK UNTUK MENANGKAP SHORTCUT DARI BOTTOM NAV ---
   useEffect(() => {
@@ -348,7 +449,6 @@ export default function CreateNotePage() {
       }, 500);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // --------------------------------------------------------
 
   const handleSave = async () => {
     const plainText = content.replace(/<[^>]+>/g, ' ').trim();
@@ -365,7 +465,6 @@ export default function CreateNotePage() {
             finalTags = result.split(',').map((t: string) => t.trim().replace(/^#/, '')).filter(Boolean);
           }
         } catch (e: any) {
-          // PERBAIKAN: Sembunyikan console.error jika errornya karena kuota
           if (e.message !== "QUOTA_EXCEEDED") {
             console.error("Auto-tagging gagal...", e);
           }
@@ -391,210 +490,247 @@ export default function CreateNotePage() {
   };
 
   return (
-    <div className="pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto">
-      
-      {/* Header Statis */}
-      <div className="p-4 flex items-center justify-between print:hidden">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="p-2 -ml-2 rounded-full hover:bg-muted text-muted-foreground transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Buat Catatan</span>
-        </div>
-      </div>
-
-      <div className="px-4 space-y-4 print:p-0">
+    <>
+      <div className="pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto relative">
         
-        {/* Area Judul */}
-        <div>
-          <input type="text" placeholder="Judul Catatan..." value={title} onChange={(e) => setTitle(e.target.value)} className="w-full text-4xl font-extrabold tracking-tight bg-transparent border-none outline-none placeholder:text-muted-foreground/30 focus:ring-0 print:text-black print:p-0" autoFocus />
+        {/* Header Statis */}
+        <div className="p-4 flex items-center justify-between print:hidden">
+          <div className="flex items-center gap-3">
+            <Link href="/" className="p-2 -ml-2 rounded-full hover:bg-muted text-muted-foreground transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </Link>
+            <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Buat Catatan</span>
+          </div>
         </div>
 
-        {/* Area Tags */}
-        <div className="flex flex-wrap items-center gap-2 print:hidden">
-          {tags.map((tag) => (
-            <span key={tag} className="px-3 py-1.5 text-xs font-medium bg-primary/10 text-primary rounded-lg flex items-center gap-1.5 animate-in zoom-in-95">
-              <TagIcon className="w-3 h-3" /> {tag}
-              <button onClick={() => removeTag(tag)} className="hover:text-destructive transition-colors rounded-full p-0.5"><X className="w-3 h-3" /></button>
-            </span>
-          ))}
-          <input type="text" placeholder={tags.length === 0 ? "Ketik tag lalu Enter..." : "+ Tambah tag..."} value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={handleKeyDownTag} className="bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground focus:ring-0 min-w-[120px]" />
-        </div>
-
-        {/* --- TOOLBAR 1: Privasi & Input Media --- */}
-        <div className="flex flex-wrap items-center gap-2 pt-2 print:hidden">
-          <Button 
-            variant={isHidden ? "default" : "outline"} 
-            size="sm" 
-            onClick={() => setIsHidden(!isHidden)} 
-            className={`rounded-xl transition-all ${isHidden ? "bg-purple-600 hover:bg-purple-700 text-white border-purple-600" : "bg-card text-muted-foreground hover:bg-purple-500/10 hover:text-purple-500 border-border"}`}
-          >
-            {isHidden ? <Lock className="w-4 h-4 mr-2 text-white" /> : <Unlock className="w-4 h-4 mr-2" />} 
-            {isHidden ? "Masuk Brankas" : "Catatan Publik"}
-          </Button>
-
-          <div className="w-px h-6 bg-border mx-1 shrink-0"></div>
-
-          {/* Input Hidden untuk Kamera & Galeri */}
-          <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} onChange={handleImageUpload} className="hidden" />
-          <input type="file" accept="image/*" ref={galleryInputRef} onChange={handleImageUpload} className="hidden" />
+        <div className="px-4 space-y-4 print:p-0">
           
-          <Button variant="outline" size="sm" onClick={() => cameraInputRef.current?.click()} disabled={isScanning} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 border-border">
-            {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Camera className="w-4 h-4 mr-2" />} Kamera
-          </Button>
-
-          <Button variant="outline" size="sm" onClick={() => galleryInputRef.current?.click()} disabled={isScanning} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-indigo-500 hover:bg-indigo-500/10 border-border">
-            {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ImageIcon className="w-4 h-4 mr-2" />} Galeri
-          </Button>
-
-          <Button variant="outline" size="sm" onClick={handleVoiceRecord} disabled={isRecording} className={`rounded-xl whitespace-nowrap transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse border-red-500' : 'bg-card text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 border-border'}`}>
-            <Mic className={`w-4 h-4 mr-2 ${isRecording ? 'animate-pulse' : ''}`} /> 
-            {isRecording ? "Mendengarkan..." : "Suara"}
-          </Button>
-        </div>
-
-        {/* --- TOOLBAR 2: Asisten AI (Banner Menonjol) --- */}
-        <div className="bg-gradient-to-r from-primary/5 via-purple-500/5 to-cyan-500/5 border border-primary/20 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 print:hidden">
-          <div className="flex items-center gap-2.5 px-1">
-            <div className="p-1.5 bg-primary/20 rounded-lg text-primary shadow-sm">
-              <Sparkles className="w-4 h-4" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-foreground">Nexa AI Assistant</p>
-              <p className="text-[10px] text-muted-foreground">Bantu rapikan catatanmu</p>
-            </div>
+          {/* Area Judul */}
+          <div>
+            <input type="text" placeholder="Judul Catatan..." value={title} onChange={(e) => setTitle(e.target.value)} className="w-full text-4xl font-extrabold tracking-tight bg-transparent border-none outline-none placeholder:text-muted-foreground/30 focus:ring-0 print:text-black print:p-0" autoFocus />
           </div>
-          
-          <div className="flex gap-2 w-full sm:w-auto">
-            <Button variant="outline" size="sm" onClick={handleGenerateTags} disabled={isGeneratingTags || (!title.trim() && !content.replace(/<[^>]+>/g, '').trim())} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-primary/10 text-primary border-primary/20 shadow-sm">
-              {isGeneratingTags ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <TagIcon className="w-3 h-3 mr-1.5" />} Tebak Tag
+
+          {/* Area Tags */}
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
+            {tags.map((tag) => (
+              <span key={tag} className="px-3 py-1.5 text-xs font-medium bg-primary/10 text-primary rounded-lg flex items-center gap-1.5 animate-in zoom-in-95">
+                <TagIcon className="w-3 h-3" /> {tag}
+                <button onClick={() => removeTag(tag)} className="hover:text-destructive transition-colors rounded-full p-0.5"><X className="w-3 h-3" /></button>
+              </span>
+            ))}
+            <input type="text" placeholder={tags.length === 0 ? "Ketik tag lalu Enter..." : "+ Tambah tag..."} value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={handleKeyDownTag} className="bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground focus:ring-0 min-w-[120px]" />
+          </div>
+
+          {/* --- TOOLBAR 1: Privasi & Input Media --- */}
+          <div className="flex flex-wrap items-center gap-2 pt-2 print:hidden">
+            <Button 
+              variant={isHidden ? "default" : "outline"} 
+              size="sm" 
+              onClick={() => setIsHidden(!isHidden)} 
+              className={`rounded-xl transition-all ${isHidden ? "bg-purple-600 hover:bg-purple-700 text-white border-purple-600" : "bg-card text-muted-foreground hover:bg-purple-500/10 hover:text-purple-500 border-border"}`}
+            >
+              {isHidden ? <Lock className="w-4 h-4 mr-2 text-white" /> : <Unlock className="w-4 h-4 mr-2" />} 
+              {isHidden ? "Masuk Brankas" : "Catatan Publik"}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleSummarize} disabled={isSummarizing || (!title.trim() && !content.replace(/<[^>]+>/g, '').trim())} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 shadow-sm">
-              {isSummarizing ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Wand2 className="w-3 h-3 mr-1.5" />} Ringkas Isi
-            </Button>
-          </div>
-        </div>
 
-        {/* Tampilan Hasil Ringkasan AI */}
-        {aiSummary && (
-          <div className="relative p-5 rounded-2xl bg-gradient-to-br from-cyan-500/10 via-purple-500/5 to-purple-500/10 border border-purple-500/20 animate-in fade-in zoom-in-95 shadow-sm print:hidden">
-            <div className="absolute top-0 right-0 p-2">
-              <button onClick={() => setAiSummary(null)} className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full"><X className="w-4 h-4"/></button>
-            </div>
-            <div className="flex items-center gap-2 mb-3 text-purple-600 dark:text-purple-400 font-bold text-sm uppercase tracking-wider">
-              <Sparkles className="w-4 h-4" /><span>Ringkasan Cerdas AI</span>
-            </div>
-            <p className="text-sm text-foreground/80 leading-relaxed font-medium">{aiSummary}</p>
-          </div>
-        )}
+            <div className="w-px h-6 bg-border mx-1 shrink-0"></div>
 
-        {/* Editor Teks */}
-        <div className="pt-2 print:text-black">
-          <TiptapEditor key={editorKey} content={content} onChange={setContent} />
-        </div>
-      </div>
-
-      {/* FLOATING BOTTOM ACTION BAR (Unduh & Simpan) */}
-      <div className="fixed bottom-20 md:bottom-8 left-0 right-0 z-40 px-4 pointer-events-none print:hidden">
-        <div className="max-w-2xl mx-auto flex items-center justify-between pointer-events-auto">
-          {/* Menu Export / Download */}
-          <div className="relative">
-            <Button variant="outline" onClick={() => setShowExportMenu(!showExportMenu)} className="rounded-full px-4 border-border bg-card/95 backdrop-blur shadow-xl hover:bg-muted">
-              <Download className="w-4 h-4 mr-2" /> Unduh
-            </Button>
-            {showExportMenu && (
-              <>
-                <div className="fixed inset-0 z-40 cursor-default" onClick={() => setShowExportMenu(false)}></div>
-                <div className="absolute left-0 bottom-full mb-3 w-48 bg-card border border-border rounded-2xl shadow-2xl z-50 p-1.5 animate-in fade-in slide-in-from-bottom-2">
-                  <button onClick={handleExportPDF} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl hover:bg-muted font-medium text-red-500 transition-colors"><Printer className="w-4 h-4" /> Simpan PDF</button>
-                  <button onClick={handleExportDOC} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl hover:bg-muted font-medium text-blue-500 transition-colors"><FileText className="w-4 h-4" /> Export DOC Word</button>
-                  <button onClick={handleExportTXT} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl hover:bg-muted font-medium text-foreground transition-colors"><File className="w-4 h-4" /> Teks Biasa (TXT)</button>
-                </div>
-              </>
-            )}
-          </div>
-
-          <Button onClick={handleSave} disabled={isSaving || (!title.trim() && content === '<p></p>')} className="rounded-full px-6 py-6 bg-gradient-to-r from-primary to-purple-600 hover:opacity-90 shadow-xl text-white font-bold border-0">
-            {isSaving ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Save className="w-5 h-5 mr-2" />} {isSaving ? "Menyimpan..." : "Simpan Catatan"}
-          </Button>
-        </div>
-      </div>
-
-      {/* CUSTOM DIALOG MODAL DENGAN QUOTA ALERT */}
-      {dialog.isOpen && (
-        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 text-center flex flex-col items-center pointer-events-auto">
+            <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} onChange={handleImageUpload} className="hidden" />
+            <input type="file" accept="image/*" ref={galleryInputRef} onChange={handleImageUpload} className="hidden" />
             
-            <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 ${dialog.type === 'confirm' ? 'bg-destructive/10 text-destructive' : dialog.type === 'quota' ? 'bg-orange-500/10 text-orange-500' : 'bg-primary/10 text-primary'}`}>
-              {dialog.type === 'quota' ? <Sparkles className="w-7 h-7" /> : <AlertCircle className="w-7 h-7" />}
+            <Button variant="outline" size="sm" onClick={() => cameraInputRef.current?.click()} disabled={isScanning} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 border-border">
+              {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Camera className="w-4 h-4 mr-2" />} Kamera
+            </Button>
+
+            <Button variant="outline" size="sm" onClick={() => galleryInputRef.current?.click()} disabled={isScanning} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-indigo-500 hover:bg-indigo-500/10 border-border">
+              {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ImageIcon className="w-4 h-4 mr-2" />} Galeri
+            </Button>
+
+            <Button variant="outline" size="sm" onClick={handleVoiceRecord} disabled={isRecording} className={`rounded-xl whitespace-nowrap transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse border-red-500' : 'bg-card text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 border-border'}`}>
+              <Mic className={`w-4 h-4 mr-2 ${isRecording ? 'animate-pulse' : ''}`} /> 
+              {isRecording ? "Mendengarkan..." : "Suara"}
+            </Button>
+          </div>
+
+          {/* --- TOOLBAR 2: Asisten AI --- */}
+          <div className="bg-gradient-to-r from-primary/5 via-purple-500/5 to-cyan-500/5 border border-primary/20 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 print:hidden">
+            <div className="flex items-center gap-2.5 px-1">
+              <div className="p-1.5 bg-primary/20 rounded-lg text-primary shadow-sm">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-foreground">Nexa AI Assistant</p>
+                <p className="text-[10px] text-muted-foreground">Bantu rapikan catatanmu</p>
+              </div>
             </div>
             
-            <h3 className="font-bold text-xl mb-2">{dialog.title}</h3>
-            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">{dialog.message}</p>
-            
-            <div className="flex gap-3 w-full">
-              {dialog.type === "confirm" && (
-                <Button 
-                  variant="outline" 
-                  className="flex-1 rounded-xl h-11 border-border bg-transparent" 
-                  onClick={() => setDialog(prev => ({ ...prev, isOpen: false }))}
-                >
-                  Batal
-                </Button>
-              )}
-              {dialog.type === "confirm" && (
-                <Button 
-                  className="flex-1 rounded-xl h-11 text-white shadow-md bg-destructive hover:bg-destructive/90" 
-                  onClick={() => {
-                    if (dialog.onConfirm) {
-                      dialog.onConfirm();
-                    }
-                    setDialog(prev => ({ ...prev, isOpen: false }));
-                  }}
-                >
-                  Ya, Lanjutkan
-                </Button>
-              )}
+            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+              <Button variant="outline" size="sm" onClick={() => setIsChatOpen(true)} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 shadow-sm whitespace-nowrap">
+                <MessageSquare className="w-3 h-3 mr-1.5" /> Tanya AI
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleGenerateMindMap} disabled={isGeneratingMindMap || !content.replace(/<[^>]+>/g, '').trim()} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 shadow-sm whitespace-nowrap">
+                {isGeneratingMindMap ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Network className="w-3 h-3 mr-1.5" />} Mind Map
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleAutoFormat} disabled={isFormatting || !content.replace(/<[^>]+>/g, '').trim()} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20 shadow-sm whitespace-nowrap">
+                {isFormatting ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1.5" />} Rapihkan
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleGenerateTags} disabled={isGeneratingTags || (!title.trim() && !content.replace(/<[^>]+>/g, '').trim())} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-primary/10 text-primary border-primary/20 shadow-sm whitespace-nowrap">
+                {isGeneratingTags ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <TagIcon className="w-3 h-3 mr-1.5" />} Tebak Tag
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleSummarize} disabled={isSummarizing || (!title.trim() && !content.replace(/<[^>]+>/g, '').trim())} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 shadow-sm whitespace-nowrap">
+                {isSummarizing ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Wand2 className="w-3 h-3 mr-1.5" />} Ringkas Isi
+              </Button>
+            </div>
+          </div>
 
-              {dialog.type === "alert" && (
-                <Button 
-                  className="flex-1 rounded-xl h-11 text-white shadow-md bg-primary hover:bg-primary/90" 
-                  onClick={() => {
-                    if (dialog.onConfirm) {
-                      dialog.onConfirm();
-                    }
-                    setDialog(prev => ({ ...prev, isOpen: false }));
-                  }}
-                >
-                  Oke, Mengerti
-                </Button>
-              )}
+          {/* Tampilan Hasil Ringkasan AI */}
+          {aiSummary && (
+            <div className="relative p-5 rounded-2xl bg-gradient-to-br from-cyan-500/10 via-purple-500/5 to-purple-500/10 border border-purple-500/20 animate-in fade-in zoom-in-95 shadow-sm print:hidden">
+              <div className="absolute top-0 right-0 p-2">
+                <button onClick={() => setAiSummary(null)} className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full"><X className="w-4 h-4"/></button>
+              </div>
+              <div className="flex items-center gap-2 mb-3 text-purple-600 dark:text-purple-400 font-bold text-sm uppercase tracking-wider">
+                <Sparkles className="w-4 h-4" /><span>Ringkasan Cerdas AI</span>
+              </div>
+              <p className="text-sm text-foreground/80 leading-relaxed font-medium">{aiSummary}</p>
+            </div>
+          )}
 
-              {dialog.type === "quota" && (
+          {/* Editor Teks */}
+          <div className="pt-2 print:text-black">
+            <TiptapEditor key={editorKey} content={content} onChange={setContent} />
+          </div>
+        </div>
+
+        {/* FLOATING BOTTOM ACTION BAR */}
+        <div className="fixed bottom-20 md:bottom-8 left-0 right-0 z-40 px-4 pointer-events-none print:hidden">
+          <div className="max-w-2xl mx-auto flex items-center justify-between pointer-events-auto">
+            {/* Menu Export / Download */}
+            <div className="relative">
+              <Button variant="outline" onClick={() => setShowExportMenu(!showExportMenu)} className="rounded-full px-4 border-border bg-card/95 backdrop-blur shadow-xl hover:bg-muted">
+                <Download className="w-4 h-4 mr-2" /> Unduh
+              </Button>
+              {showExportMenu && (
                 <>
-                  <Button 
-                    variant="outline" 
-                    className="flex-1 rounded-xl h-11 border-border bg-transparent" 
-                    onClick={() => setDialog(prev => ({ ...prev, isOpen: false }))}
-                  >
-                    Nanti Saja
-                  </Button>
-                  <Button 
-                    className="flex-1 rounded-xl h-11 text-white shadow-md bg-gradient-to-r from-orange-500 to-red-500 hover:opacity-90 border-0" 
-                    onClick={() => {
-                      router.push("/funding");
-                      setDialog(prev => ({ ...prev, isOpen: false }));
-                    }}
-                  >
-                    💖 Dukung Nexa
-                  </Button>
+                  <div className="fixed inset-0 z-40 cursor-default" onClick={() => setShowExportMenu(false)}></div>
+                  <div className="absolute left-0 bottom-full mb-3 w-48 bg-card border border-border rounded-2xl shadow-2xl z-50 p-1.5 animate-in fade-in slide-in-from-bottom-2">
+                    <button onClick={handleExportPDF} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl hover:bg-muted font-medium text-red-500 transition-colors"><Printer className="w-4 h-4" /> Simpan PDF</button>
+                    <button onClick={handleExportDOC} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl hover:bg-muted font-medium text-blue-500 transition-colors"><FileText className="w-4 h-4" /> Export DOC Word</button>
+                    <button onClick={handleExportTXT} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl hover:bg-muted font-medium text-foreground transition-colors"><File className="w-4 h-4" /> Teks Biasa (TXT)</button>
+                  </div>
                 </>
               )}
             </div>
+
+            <Button onClick={handleSave} disabled={isSaving || (!title.trim() && content === '<p></p>')} className="rounded-full px-6 py-6 bg-gradient-to-r from-primary to-purple-600 hover:opacity-90 shadow-xl text-white font-bold border-0">
+              {isSaving ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Save className="w-5 h-5 mr-2" />} {isSaving ? "Menyimpan..." : "Simpan Catatan"}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* --- PANEL OVERLAY: MIND MAP VIEWER --- */}
+      {mindMapCode && (
+        <div className="fixed inset-0 z-[100] bg-background/95 backdrop-blur-md flex flex-col animate-in fade-in zoom-in-95 duration-300">
+          <div className="flex items-center justify-between p-4 border-b border-border/50 bg-muted/30">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-rose-500/10 flex items-center justify-center">
+                <Network className="w-5 h-5 text-rose-500" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base leading-tight">Peta Konsep (Mind Map)</h3>
+                <p className="text-[11px] text-muted-foreground">Di-generate otomatis oleh Nexa AI</p>
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" className="rounded-full hover:bg-muted" onClick={() => setMindMapCode(null)}>
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
+          
+          <div className="flex-1 overflow-auto p-4 flex items-center justify-center w-full h-full relative">
+            <p className="absolute top-4 left-0 right-0 text-center text-xs text-muted-foreground">
+              Tip: Kamu bisa melakukan Zoom/Pinch di area ini.
+            </p>
+            {/* Tempat hasil render Mermaid JS */}
+            <div ref={mindMapRef} className="w-full max-w-4xl flex justify-center mt-6" />
           </div>
         </div>
       )}
 
-    </div>
+      {/* --- PANEL SLIDER: CHAT DENGAN CATATAN --- */}
+      {isChatOpen && (
+        <div className="fixed inset-0 z-[60] bg-background/80 backdrop-blur-sm md:hidden" onClick={() => setIsChatOpen(false)} />
+      )}
+
+      <div className={`fixed inset-y-0 right-0 z-[70] w-full md:w-[400px] bg-card border-l border-border shadow-2xl transform transition-transform duration-500 ease-in-out flex flex-col ${isChatOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+        {/* Chat Header */}
+        <div className="flex items-center justify-between p-4 border-b border-border/50 bg-muted/30">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center shadow-md">
+              <Bot className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="font-bold text-base leading-tight">Nexa AI Chat</h3>
+              <p className="text-[11px] text-muted-foreground">Tanya apapun soal catatan ini</p>
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" className="rounded-full hover:bg-muted" onClick={() => setIsChatOpen(false)}>
+            <X className="w-5 h-5" />
+          </Button>
+        </div>
+
+        {/* Chat Messages */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {chatMessages.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center text-center opacity-50 space-y-3">
+              <MessageSquare className="w-12 h-12" />
+              <p className="text-sm">Belum ada obrolan.<br/>Tanyakan inti, ide, atau ringkasan spesifik dari draf catatanmu!</p>
+            </div>
+          )}
+          {chatMessages.map((msg, i) => (
+            <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              {msg.role === "ai" && (
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-1">
+                  <Bot className="w-4 h-4 text-primary" />
+                </div>
+              )}
+              <div 
+                className={`px-4 py-2.5 text-sm rounded-2xl max-w-[85%] leading-relaxed ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-tr-sm" : "bg-muted rounded-tl-sm border border-border/50"}`}
+                dangerouslySetInnerHTML={{ __html: msg.role === "ai" ? formatMessageContent(msg.content) : msg.content }}
+              />
+            </div>
+          ))}
+          
+          {isChatLoading && (
+            <div className="flex gap-3 justify-start">
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-1">
+                <Bot className="w-4 h-4 text-primary" />
+              </div>
+              <div className="px-4 py-3 bg-muted rounded-2xl rounded-tl-sm border border-border/50 flex gap-1.5 items-center h-10">
+                <span className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" />
+                <span className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce delay-75" />
+                <span className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce delay-150" />
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Chat Input */}
+        <div className="p-4 border-t border-border/50 bg-background flex gap-2">
+          <input
+            type="text"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
+            placeholder="Ketik pertanyaanmu..."
+            className="flex-1 bg-muted px-4 py-3 text-sm rounded-xl outline-none focus:ring-2 focus:ring-primary/50 transition-all placeholder:text-muted-foreground/50"
+          />
+          <Button size="icon" className="rounded-xl shrink-0 h-12 w-12 shadow-md bg-primary hover:bg-primary/90" onClick={handleSendChat} disabled={isChatLoading || !chatInput.trim()}>
+            <Send className="w-5 h-5 ml-0.5" />
+          </Button>
+        </div>
+      </div>
+    </>
   );
 }

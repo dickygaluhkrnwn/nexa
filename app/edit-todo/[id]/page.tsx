@@ -3,19 +3,22 @@
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { getNote, updateNote, deleteNote } from "@/lib/notes-service";
+import { getNote, updateNote, deleteNote, SubTask } from "@/lib/notes-service";
 import { Button } from "@/components/ui/button";
 import { 
   Loader2, Save, ArrowLeft, Calendar, 
-  AlignLeft, Repeat, AlertCircle, Clock, Trash2
+  AlignLeft, Repeat, Clock, Trash2,
+  ListTodo, Plus, X, Circle, CheckCircle2
 } from "lucide-react";
 import Link from "next/link";
+import { useModal } from "@/hooks/use-modal"; 
 
 export default function EditTodoPage() {
   const { user } = useAuth();
   const router = useRouter();
   const params = useParams();
   const todoId = params.id as string;
+  const { showAlert, showConfirm } = useModal(); 
   
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -23,21 +26,12 @@ export default function EditTodoPage() {
   const [dueTime, setDueTime] = useState("");
   const [recurrence, setRecurrence] = useState("none");
   
+  // State untuk Sub-Tasks
+  const [subTasks, setSubTasks] = useState<SubTask[]>([]);
+  const [newSubTask, setNewSubTask] = useState("");
+
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-
-  const [dialog, setDialog] = useState<{
-    isOpen: boolean; 
-    title: string; 
-    message: string;
-    type: "alert" | "confirm";
-    onConfirm?: () => void;
-  }>({
-    isOpen: false, title: "", message: "", type: "alert"
-  });
-
-  const showAlert = (title: string, message: string, onConfirm?: () => void) => setDialog({ isOpen: true, title, message, type: "alert", onConfirm });
-  const showConfirm = (title: string, message: string, onConfirm: () => void) => setDialog({ isOpen: true, title, message, type: "confirm", onConfirm });
 
   useEffect(() => {
     const fetchTodo = async () => {
@@ -48,21 +42,24 @@ export default function EditTodoPage() {
           setTitle(todoData.title);
           setContent(todoData.content);
           setDueDate(todoData.dueDate || "");
-          setDueTime((todoData as any).dueTime || ""); // Cast to any sementara
+          setDueTime((todoData as any).dueTime || ""); 
           setRecurrence((todoData as any).recurrence || "none");
+          setSubTasks(todoData.subTasks || []); 
         } else {
-          showAlert("Akses Ditolak", "Tugas tidak ditemukan atau kamu tidak memiliki akses.", () => router.push("/todo"));
+          showAlert("Akses Ditolak", "Tugas tidak ditemukan atau kamu tidak memiliki akses.");
+          router.push("/todo");
         }
       } catch (error) {
         console.error("Gagal memuat tugas:", error);
-        showAlert("Gagal", "Terjadi kesalahan saat memuat tugas.", () => router.push("/todo"));
+        showAlert("Gagal", "Terjadi kesalahan saat memuat tugas.");
+        router.push("/todo");
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchTodo();
-  }, [user, todoId, router]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user, todoId, router, showAlert]); 
 
   if (!user) {
     return (
@@ -81,6 +78,29 @@ export default function EditTodoPage() {
     );
   }
 
+  // --- HANDLER SUB-TASKS ---
+  const handleAddSubTask = () => {
+    if (!newSubTask.trim()) return;
+    const newTask: SubTask = {
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+      text: newSubTask.trim(),
+      isCompleted: false
+    };
+    setSubTasks([...subTasks, newTask]);
+    setNewSubTask("");
+  };
+
+  const handleRemoveSubTask = (id: string) => {
+    setSubTasks(subTasks.filter(st => st.id !== id));
+  };
+
+  const handleToggleSubTask = (id: string) => {
+    setSubTasks(subTasks.map(st => 
+      st.id === id ? { ...st, isCompleted: !st.isCompleted } : st
+    ));
+  };
+  // -------------------------
+
   const handleUpdate = async () => {
     if (!title.trim()) {
       showAlert("Perhatian", "Judul tugas tidak boleh kosong!");
@@ -95,6 +115,7 @@ export default function EditTodoPage() {
         dueDate: dueDate || null,
         dueTime: dueTime || null,
         recurrence: recurrence,
+        subTasks: subTasks, 
       } as any);
       router.push("/todo");
     } catch (error) {
@@ -116,7 +137,7 @@ export default function EditTodoPage() {
   };
 
   return (
-    <div className="pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto">
+    <div className="pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto relative">
       
       {/* Header */}
       <div className="p-4 flex items-center justify-between">
@@ -143,11 +164,69 @@ export default function EditTodoPage() {
           />
         </div>
 
+        {/* Area Sub-Tasks (Checklist) */}
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center justify-between text-muted-foreground mb-1">
+            <div className="flex items-center gap-2">
+              <ListTodo className="w-5 h-5" />
+              <h3 className="font-semibold text-sm uppercase tracking-wider">Sub-Tugas</h3>
+            </div>
+            {subTasks.length > 0 && (
+              <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-md">
+                {subTasks.filter(s => s.isCompleted).length} / {subTasks.length} Selesai
+              </span>
+            )}
+          </div>
+          
+          <div className="space-y-2">
+            {subTasks.map((st) => (
+              <div key={st.id} className={`flex items-start gap-3 p-3 rounded-2xl group transition-all border ${st.isCompleted ? 'bg-muted/30 border-transparent opacity-60' : 'bg-card border-border shadow-sm'}`}>
+                <button 
+                  onClick={() => handleToggleSubTask(st.id)} 
+                  className={`mt-0.5 shrink-0 transition-colors ${st.isCompleted ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
+                >
+                  {st.isCompleted ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
+                </button>
+                <span className={`flex-1 text-sm font-medium leading-relaxed ${st.isCompleted ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+                  {st.text}
+                </span>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="w-7 h-7 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all rounded-full shrink-0" 
+                  onClick={() => handleRemoveSubTask(st.id)}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            ))}
+            
+            <div className="flex items-center gap-2 mt-2">
+              <input 
+                type="text" 
+                value={newSubTask} 
+                onChange={(e) => setNewSubTask(e.target.value)} 
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddSubTask();
+                  }
+                }}
+                placeholder="Tambah sub-tugas baru..." 
+                className="flex-1 bg-muted/50 border border-transparent focus:border-primary/30 px-4 py-3 text-sm rounded-2xl outline-none focus:ring-2 focus:ring-primary/50 transition-all placeholder:text-muted-foreground/60"
+              />
+              <Button onClick={handleAddSubTask} disabled={!newSubTask.trim()} className="h-11 w-11 rounded-2xl shrink-0 shadow-sm">
+                <Plus className="w-5 h-5" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
         {/* Input Deskripsi */}
-        <div className="flex gap-3">
+        <div className="flex gap-3 pt-2">
           <AlignLeft className="w-5 h-5 text-muted-foreground mt-3 shrink-0" />
           <textarea
-            placeholder="Tambahkan detail tugas..."
+            placeholder="Catatan tambahan (opsional)..."
             value={content}
             onChange={(e) => setContent(e.target.value)}
             className="w-full bg-transparent border-none outline-none resize-none text-base placeholder:text-muted-foreground/60 min-h-[100px] py-3 focus:ring-0"
@@ -199,8 +278,8 @@ export default function EditTodoPage() {
       </div>
 
       {/* Floating Action Bar */}
-      <div className="fixed bottom-20 md:bottom-8 left-0 right-0 z-40 px-4">
-        <div className="max-w-2xl mx-auto flex justify-end">
+      <div className="fixed bottom-20 md:bottom-8 left-0 right-0 z-40 px-4 pointer-events-none">
+        <div className="max-w-2xl mx-auto flex justify-end pointer-events-auto">
           <Button onClick={handleUpdate} disabled={isSaving || !title.trim()} className="rounded-full px-8 py-6 bg-gradient-to-r from-orange-500 to-red-500 hover:opacity-90 shadow-xl text-white font-bold border-0">
             {isSaving ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Save className="w-5 h-5 mr-2" />} 
             {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
@@ -208,33 +287,6 @@ export default function EditTodoPage() {
         </div>
       </div>
 
-      {/* Modal Dialog */}
-      {dialog.isOpen && (
-        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm text-center flex flex-col items-center">
-            <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 ${dialog.type === 'confirm' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>
-              <AlertCircle className="w-7 h-7" />
-            </div>
-            <h3 className="font-bold text-xl mb-2">{dialog.title}</h3>
-            <p className="text-sm text-muted-foreground mb-6">{dialog.message}</p>
-            
-            <div className="flex gap-3 w-full">
-              {dialog.type === "confirm" && (
-                <Button variant="outline" className="flex-1 rounded-xl h-11 border-border bg-transparent" onClick={() => setDialog({ ...dialog, isOpen: false })}>Batal</Button>
-              )}
-              <Button 
-                className={`flex-1 rounded-xl h-11 text-white shadow-md ${dialog.type === 'confirm' ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'}`} 
-                onClick={() => {
-                  if (dialog.type === "confirm" && dialog.onConfirm) dialog.onConfirm();
-                  setDialog({ ...dialog, isOpen: false });
-                }}
-              >
-                {dialog.type === "confirm" ? "Ya, Hapus" : "Oke, Mengerti"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

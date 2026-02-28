@@ -20,7 +20,6 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    // Tambahan variabel imageBase64 dan mimeType untuk OCR
     const { action, content, prompt: userPrompt, context, imageBase64, mimeType } = body;
 
     if (!action) {
@@ -30,7 +29,6 @@ export async function POST(req: Request) {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     let finalPrompt = "";
-    // Kita gunakan array agar bisa menampung teks biasa, ATAU teks + gambar
     let generateParams: any[] = []; 
 
     // Logika berdasarkan aksi yang diminta
@@ -60,10 +58,41 @@ export async function POST(req: Request) {
         generateParams = [finalPrompt];
         break;
 
+      case "auto-format":
+        if (!content) return NextResponse.json({ error: "Content is required" }, { status: 400 });
+        finalPrompt = `
+          Tugasmu adalah merapikan teks mentah/acak berikut menjadi struktur yang sangat profesional, rapi, dan mudah dibaca.
+          Gunakan tag HTML dasar (seperti <h2>, <h3>, <p>, <ul>, <li>, <strong>, <em>) untuk menstrukturkannya.
+          Jangan mengubah makna asli, cukup perbaiki ejaan, tanda baca, tata bahasa, dan buat susunannya lebih logis (misalnya memisahkan paragraf panjang, membuat bullet points untuk daftar).
+          PENTING: Output HANYA berupa kode HTML murni tanpa bungkus markdown block (jangan gunakan \`\`\`html ... \`\`\`).
+          
+          Teks mentah:
+          "${content}"
+        `;
+        generateParams = [finalPrompt];
+        break;
+
+      // --- TAMBAHAN FITUR MIND MAP ---
+      case "mindmap":
+        if (!content) return NextResponse.json({ error: "Content is required" }, { status: 400 });
+        finalPrompt = `
+          Buatlah diagram (peta konsep) berformat sintaks Mermaid.js dari catatan berikut.
+          PENTING: 
+          - Output HANYA berupa kode Mermaid murni.
+          - Jangan gunakan markdown block (\`\`\`mermaid ... \`\`\`).
+          - Pastikan sintaksnya valid agar tidak error saat di-render.
+          - Gunakan format 'mindmap' atau 'graph LR' untuk hierarkinya.
+          - Hindari karakter khusus (seperti kutip atau titik dua) di dalam teks node agar tidak merusak render.
+          
+          Catatan:
+          "${content}"
+        `;
+        generateParams = [finalPrompt];
+        break;
+      // -----------------------------------------
+
       case "chat":
         if (!userPrompt) return NextResponse.json({ error: "Prompt is required for chat" }, { status: 400 });
-        // Inilah inti dari RAG (Retrieval-Augmented Generation).
-        // Kita menyuapkan data catatan user ke dalam otak AI.
         finalPrompt = `
           Kamu adalah "Nexa", asisten AI cerdas, ramah, dan proaktif di aplikasi pencatatan "Super Note AI".
           Tugas utamamu adalah membantu pengguna menjawab pertanyaan BERDASARKAN catatan yang mereka miliki.
@@ -81,7 +110,6 @@ export async function POST(req: Request) {
 
       case "ocr":
         if (!imageBase64) return NextResponse.json({ error: "Image Base64 is required for OCR" }, { status: 400 });
-        // Prompt khusus OCR untuk mengekstrak teks ke HTML
         finalPrompt = `Ekstrak seluruh teks yang ada di gambar ini dengan sangat akurat. 
         PENTING: Outputkan hasilnya dalam format HTML dasar (seperti <p>, <br>, <strong>, <ul>, <li>) agar bisa langsung dimasukkan ke Text Editor.
         JANGAN sertakan awalan \`\`\`html atau akhiran \`\`\`. Hanya berikan elemen HTML-nya saja.`;
@@ -92,7 +120,6 @@ export async function POST(req: Request) {
             mimeType: mimeType || "image/jpeg",
           },
         };
-        // Masukkan prompt teks dan objek gambar sekaligus
         generateParams = [finalPrompt, imagePart];
         break;
 
@@ -103,7 +130,6 @@ export async function POST(req: Request) {
         );
     }
 
-    // Eksekusi model dengan parameter yang sudah disiapkan
     const result = await model.generateContent(generateParams);
     const responseText = result.response.text();
 

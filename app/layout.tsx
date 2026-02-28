@@ -6,7 +6,8 @@ import { Header } from "@/components/layout/header";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/lib/auth-context";
 import { ChatWidget } from "@/components/ui/chat-widget";
-import { Analytics } from "@vercel/analytics/next"; // Import Vercel Analytics
+import { GlobalModal } from "@/components/ui/global-modal"; // <-- Import Global Modal
+import { Analytics } from "@vercel/analytics/next"; 
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -46,6 +47,8 @@ export default function RootLayout({
             </main>
             <ChatWidget />
             <BottomNav />
+            {/* Render Global Modal di sini agar bisa dipanggil dari seluruh aplikasi */}
+            <GlobalModal /> 
           </AuthProvider>
         </ThemeProvider>
         

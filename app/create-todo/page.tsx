@@ -3,29 +3,31 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { addNote } from "@/lib/notes-service";
+import { addNote, SubTask } from "@/lib/notes-service"; // Import SubTask
 import { Button } from "@/components/ui/button";
 import { 
   Loader2, Save, ArrowLeft, Calendar, 
-  AlignLeft, Repeat, AlertCircle, Clock
+  AlignLeft, Repeat, Clock, ListTodo, Plus, X, Circle
 } from "lucide-react";
 import Link from "next/link";
+import { useModal } from "@/hooks/use-modal"; 
 
 export default function CreateTodoPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const { showAlert } = useModal(); 
   
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [dueDate, setDueDate] = useState("");
-  const [dueTime, setDueTime] = useState(""); // Tambahan state Waktu
+  const [dueTime, setDueTime] = useState(""); 
   const [recurrence, setRecurrence] = useState("none");
+  
+  // State untuk Sub-Tasks
+  const [subTasks, setSubTasks] = useState<SubTask[]>([]);
+  const [newSubTask, setNewSubTask] = useState("");
+  
   const [isSaving, setIsSaving] = useState(false);
-
-  const [dialog, setDialog] = useState<{isOpen: boolean; title: string; message: string}>({
-    isOpen: false, title: "", message: ""
-  });
-  const showAlert = (title: string, message: string) => setDialog({ isOpen: true, title, message });
 
   if (!user) {
     return (
@@ -35,6 +37,21 @@ export default function CreateTodoPage() {
       </div>
     );
   }
+
+  const handleAddSubTask = () => {
+    if (!newSubTask.trim()) return;
+    const newTask: SubTask = {
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+      text: newSubTask.trim(),
+      isCompleted: false
+    };
+    setSubTasks([...subTasks, newTask]);
+    setNewSubTask("");
+  };
+
+  const handleRemoveSubTask = (id: string) => {
+    setSubTasks(subTasks.filter(st => st.id !== id));
+  };
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -50,13 +67,14 @@ export default function CreateTodoPage() {
         tags: [],
         isTodo: true,
         dueDate: dueDate || null,
-        dueTime: dueTime || null, // Menyimpan Waktu ke database
+        dueTime: dueTime || null, 
         recurrence: recurrence,
         isHidden: false,
         isPinned: false,
         isCompleted: false,
+        subTasks: subTasks, // Memasukkan sub-tugas ke database
         userId: user.uid,
-      } as any); // as any sementara jika interface NoteData belum diperbarui
+      } as any); 
       router.push("/todo");
     } catch (error) {
       console.error(error);
@@ -91,11 +109,55 @@ export default function CreateTodoPage() {
           />
         </div>
 
-        {/* Input Deskripsi */}
-        <div className="flex gap-3">
+        {/* Area Sub-Tasks (Checklist) */}
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center gap-2 text-muted-foreground mb-1">
+            <ListTodo className="w-5 h-5" />
+            <h3 className="font-semibold text-sm uppercase tracking-wider">Sub-Tugas</h3>
+          </div>
+          
+          <div className="space-y-2">
+            {subTasks.map((st) => (
+              <div key={st.id} className="flex items-start gap-3 bg-card border border-border p-3 rounded-2xl group">
+                <Circle className="w-5 h-5 text-muted-foreground/50 shrink-0 mt-0.5" />
+                <span className="flex-1 text-sm font-medium leading-relaxed">{st.text}</span>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="w-7 h-7 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all rounded-full shrink-0" 
+                  onClick={() => handleRemoveSubTask(st.id)}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            ))}
+            
+            <div className="flex items-center gap-2 mt-2">
+              <input 
+                type="text" 
+                value={newSubTask} 
+                onChange={(e) => setNewSubTask(e.target.value)} 
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddSubTask();
+                  }
+                }}
+                placeholder="Tambah sub-tugas baru..." 
+                className="flex-1 bg-muted/50 border border-transparent focus:border-primary/30 px-4 py-3 text-sm rounded-2xl outline-none focus:ring-2 focus:ring-primary/50 transition-all placeholder:text-muted-foreground/60"
+              />
+              <Button onClick={handleAddSubTask} disabled={!newSubTask.trim()} className="h-11 w-11 rounded-2xl shrink-0 shadow-sm">
+                <Plus className="w-5 h-5" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Input Deskripsi Tambahan */}
+        <div className="flex gap-3 pt-2">
           <AlignLeft className="w-5 h-5 text-muted-foreground mt-3 shrink-0" />
           <textarea
-            placeholder="Tambahkan detail tugas..."
+            placeholder="Catatan tambahan (opsional)..."
             value={content}
             onChange={(e) => setContent(e.target.value)}
             className="w-full bg-transparent border-none outline-none resize-none text-base placeholder:text-muted-foreground/60 min-h-[100px] py-3 focus:ring-0"
@@ -155,20 +217,6 @@ export default function CreateTodoPage() {
           </Button>
         </div>
       </div>
-
-      {/* Modal Dialog */}
-      {dialog.isOpen && (
-        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm text-center flex flex-col items-center">
-            <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4 bg-primary/10 text-primary">
-              <AlertCircle className="w-7 h-7" />
-            </div>
-            <h3 className="font-bold text-xl mb-2">{dialog.title}</h3>
-            <p className="text-sm text-muted-foreground mb-6">{dialog.message}</p>
-            <Button className="w-full rounded-xl h-11" onClick={() => setDialog({ ...dialog, isOpen: false })}>Oke, Mengerti</Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

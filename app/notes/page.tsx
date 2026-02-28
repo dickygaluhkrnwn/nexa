@@ -5,16 +5,17 @@ import { Button } from "@/components/ui/button";
 import { 
   Loader2, Trash2, Search, FileText, 
   LockKeyhole, KeyRound, LayoutGrid, List, 
-  ArrowDownAZ, ArrowDownZA, Clock, ArrowUpCircle, Filter,
-  AlertCircle, Pin // Tambahan icon Pin
+  ArrowDownAZ, ArrowDownZA, Clock, ArrowUpCircle, Filter, Pin 
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getUserNotes, deleteNote, updateNote, NoteData } from "@/lib/notes-service";
 import { getUserProfile } from "@/lib/user-service";
 import Link from "next/link";
+import { useModal } from "@/hooks/use-modal"; // <-- Import Global Modal Hook
 
 export default function NotesPage() {
   const { user, loading: authLoading } = useAuth();
+  const { showAlert, showConfirm } = useModal(); // <-- Panggil fungsi Modal Global
   const [notes, setNotes] = useState<(NoteData & { id: string; isHidden?: boolean; isPinned?: boolean })[]>([]);
   const [loadingNotes, setLoadingNotes] = useState(true);
   
@@ -30,29 +31,6 @@ export default function NotesPage() {
   const [pinInput, setPinInput] = useState("");
   const [showPinModal, setShowPinModal] = useState(false);
   const [correctPin, setCorrectPin] = useState<string | null>(null);
-
-  // --- STATE CUSTOM DIALOG MODAL ---
-  const [dialog, setDialog] = useState<{
-    isOpen: boolean;
-    title: string;
-    message: string;
-    type: "alert" | "confirm";
-    onConfirm?: () => void;
-  }>({
-    isOpen: false,
-    title: "",
-    message: "",
-    type: "alert"
-  });
-
-  const showAlert = (title: string, message: string) => {
-    setDialog({ isOpen: true, title, message, type: "alert" });
-  };
-
-  const showConfirm = (title: string, message: string, onConfirm: () => void) => {
-    setDialog({ isOpen: true, title, message, type: "confirm", onConfirm });
-  };
-  // ---------------------------------
 
   const fetchData = async () => {
     if (!user) return;
@@ -397,32 +375,6 @@ export default function NotesPage() {
         </div>
       )}
 
-      {/* CUSTOM DIALOG MODAL */}
-      {dialog.isOpen && (
-        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 text-center flex flex-col items-center">
-            <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 ${dialog.type === 'confirm' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>
-              <AlertCircle className="w-7 h-7" />
-            </div>
-            <h3 className="font-bold text-xl mb-2">{dialog.title}</h3>
-            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">{dialog.message}</p>
-            <div className="flex gap-3 w-full">
-              {dialog.type === "confirm" && (
-                <Button variant="outline" className="flex-1 rounded-xl h-11 border-border bg-transparent" onClick={() => setDialog(prev => ({ ...prev, isOpen: false }))}>Batal</Button>
-              )}
-              <Button 
-                className={`flex-1 rounded-xl h-11 text-white shadow-md ${dialog.type === 'confirm' ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'}`} 
-                onClick={() => {
-                  if (dialog.type === "confirm" && dialog.onConfirm) dialog.onConfirm();
-                  setDialog(prev => ({ ...prev, isOpen: false }));
-                }}
-              >
-                {dialog.type === "confirm" ? "Ya, Hapus" : "Oke, Mengerti"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -29,9 +29,10 @@ export function ChatWidget() {
 
   // SEMBUNYIKAN WIDGET JIKA:
   // 1. User belum login
-  // 2. Berada di halaman /create
-  // 3. Berada di halaman /edit
-  if (!user || pathname.startsWith('/create') || pathname.startsWith('/edit')) {
+  // 2. Berada di halaman /create (termasuk /create-todo)
+  // 3. Berada di halaman /edit (termasuk /edit-todo)
+  // 4. Berada di halaman /todo (karena sudah ada Pomodoro Timer)
+  if (!user || pathname.startsWith('/create') || pathname.startsWith('/edit') || pathname.startsWith('/todo')) {
     return null;
   }
 

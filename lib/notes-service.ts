@@ -13,16 +13,24 @@ import {
   updateDoc
 } from "firebase/firestore";
 
+// --- TIPE DATA BARU UNTUK SUB-TUGAS ---
+export interface SubTask {
+  id: string;
+  text: string;
+  isCompleted: boolean;
+}
+
 export interface NoteData {
   title: string;
   content: string; // Format HTML dari Tiptap
   tags: string[];
   isTodo: boolean;
   dueDate?: string | null;
-  dueTime?: string | null; // <-- Tambahan untuk Waktu (Jam/Menit)
-  recurrence?: string; // 'none' | 'daily' | 'weekly' | 'monthly'
-  isHidden?: boolean; // <-- Tambahan untuk fitur Brankas Rahasia
-  isPinned?: boolean; // <-- Tambahan untuk fitur Pin Catatan/Tugas
+  dueTime?: string | null; 
+  recurrence?: string; 
+  isHidden?: boolean; 
+  isPinned?: boolean; 
+  subTasks?: SubTask[]; // <-- Tambahan untuk fitur Checklist / Sub-Tasks
   userId: string;
 }
 
