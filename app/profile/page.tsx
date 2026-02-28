@@ -9,7 +9,7 @@ import {
   Save, Loader2, Phone, BellRing, 
   Pencil, X, Lock, ShieldCheck, Sparkles, 
   FileText, CheckSquare, LockKeyhole, Mail, User as UserIcon, BrainCircuit,
-  AlertCircle // Tambahan icon AlertCircle
+  AlertCircle, Bell, Smartphone
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -20,6 +20,9 @@ export default function ProfilePage() {
   // --- States untuk Mode Profil (User Permanen) ---
   const [whatsapp, setWhatsapp] = useState("");
   const [pinCode, setPinCode] = useState("");
+  const [vibrationEnabled, setVibrationEnabled] = useState(true); // Default getar aktif
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | "default">("default");
+
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditingWA, setIsEditingWA] = useState(false);
@@ -57,6 +60,11 @@ export default function ProfilePage() {
   // ---------------------------------
 
   useEffect(() => {
+    // Cek status izin notifikasi perangkat saat ini
+    if ('Notification' in window) {
+      setPushPermission(Notification.permission);
+    }
+
     const fetchProfileAndStats = async () => {
       // Jika belum login, atau jika masih tamu, abaikan fetch data sensitif
       if (!user || user.isAnonymous) {
@@ -71,6 +79,7 @@ export default function ProfilePage() {
         
         if (profile?.whatsappNumber) setWhatsapp(profile.whatsappNumber);
         if (profile?.pinCode) setPinCode(profile.pinCode);
+        if (profile?.vibrationEnabled !== undefined) setVibrationEnabled(profile.vibrationEnabled);
 
         setStats({
           notes: notesData.filter((n: any) => !n.isTodo && !n.isHidden).length,
@@ -301,6 +310,37 @@ export default function ProfilePage() {
     }
   };
 
+  // Handler Aktivasi Notifikasi Push
+  const handleRequestPush = async () => {
+    if (!('Notification' in window)) {
+      showAlert("Tidak Didukung", "Browser atau perangkat kamu tidak mendukung notifikasi sistem.");
+      return;
+    }
+    try {
+      const perm = await Notification.requestPermission();
+      setPushPermission(perm);
+      if (perm === 'granted') {
+        showAlert("Berhasil", "Notifikasi telah diaktifkan! Kamu akan menerima pengingat harian.");
+      } else {
+        showAlert("Izin Ditolak", "Kamu menolak izin notifikasi. Kamu bisa mengubahnya nanti di pengaturan browser.");
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  // Handler Toggle Getaran
+  const handleToggleVibration = async () => {
+    const newValue = !vibrationEnabled;
+    setVibrationEnabled(newValue); // Optimistic Update agar UI langsung berubah
+    try {
+      await updateUserProfile(user.uid, { vibrationEnabled: newValue });
+    } catch (error) {
+      setVibrationEnabled(!newValue); // Rollback jika gagal
+      showAlert("Gagal", "Terjadi kesalahan saat menyimpan pengaturan getaran.");
+    }
+  };
+
   return (
     <div className="p-4 pb-24 space-y-6 animate-in fade-in duration-500 max-w-lg mx-auto">
       
@@ -349,12 +389,64 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {/* 3. PENGATURAN NOTIFIKASI */}
+      <div className="space-y-4 pt-4">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider px-1">
+          Pengaturan Notifikasi
+        </h3>
+        <div className="bg-card border border-border/60 rounded-3xl p-5 shadow-sm space-y-4 relative overflow-hidden transition-all hover:shadow-md">
+          
+          {/* Izin Push Notifikasi */}
+          <div className="flex items-center justify-between border-b border-border/50 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-blue-500/10 rounded-xl text-blue-600">
+                <Bell className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-semibold text-base">Notifikasi Sistem</h2>
+                <p className="text-xs text-muted-foreground">Muncul di layar HP/Desktop</p>
+              </div>
+            </div>
+            {pushPermission === 'granted' ? (
+              <span className="text-xs font-bold text-green-500 bg-green-500/10 px-3 py-1.5 rounded-full border border-green-500/20">Aktif</span>
+            ) : (
+              <Button size="sm" onClick={handleRequestPush} className="rounded-full text-xs h-8 shadow-sm">Aktifkan</Button>
+            )}
+          </div>
+
+          {/* Pengaturan Getaran */}
+          <div className="flex items-center justify-between pt-1">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-orange-500/10 rounded-xl text-orange-600">
+                <Smartphone className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-semibold text-base">Getaran Perangkat</h2>
+                <p className="text-xs text-muted-foreground">Bergetar saat notifikasi masuk</p>
+              </div>
+            </div>
+            
+            {/* Custom Toggle Switch */}
+            <button
+              onClick={handleToggleVibration}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${vibrationEnabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+            >
+              <span className="sr-only">Toggle getaran</span>
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow ring-0 transition duration-200 ease-in-out ${vibrationEnabled ? 'translate-x-5' : 'translate-x-0'}`}
+              />
+            </button>
+          </div>
+
+        </div>
+      </div>
+
       <div className="space-y-4 pt-4">
         <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider px-1">
           Pengaturan Keamanan
         </h3>
         
-        {/* 3. Pengaturan Brankas Rahasia (PIN) */}
+        {/* 4. Pengaturan Brankas Rahasia (PIN) */}
         <div className="bg-card border border-border/60 rounded-3xl p-5 shadow-sm space-y-4 relative overflow-hidden transition-all hover:shadow-md">
           <div className="flex items-center justify-between border-b border-border/50 pb-4">
             <div className="flex items-center gap-3">
@@ -424,7 +516,7 @@ export default function ProfilePage() {
           Pengaturan Integrasi
         </h3>
 
-        {/* 4. Pengaturan Notifikasi WA */}
+        {/* 5. Pengaturan Notifikasi WA */}
         <div className="bg-card border border-border/60 rounded-3xl p-5 shadow-sm space-y-4 relative overflow-hidden transition-all hover:shadow-md">
           <div className="flex items-center justify-between border-b border-border/50 pb-4">
             <div className="flex items-center gap-3">

@@ -12,6 +12,8 @@ import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { getUserNotes } from "@/lib/notes-service";
+import { doc, getDoc, updateDoc, setDoc, arrayUnion } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 interface NotificationItem {
   id: string;
@@ -30,6 +32,7 @@ export function Header() {
   // --- STATE NOTIFIKASI ---
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [readNotifs, setReadNotifs] = useState<string[]>([]); // Menyimpan ID notif yang sudah dibaca
   const [pushPermission, setPushPermission] = useState<NotificationPermission | "default">("default");
 
   // State untuk mendeteksi arah scroll
@@ -61,11 +64,18 @@ export function Header() {
   useEffect(() => {
     setMounted(true);
     
-    // Cek status izin notifikasi HP/Desktop saat ini
+    // Cek status izin notifikasi perangkat
     if ('Notification' in window) {
       setPushPermission(Notification.permission);
     }
 
+    // Ambil cache dari Local Storage untuk kecepatan (agar UI tidak delay)
+    const storedReadNotifs = localStorage.getItem('nexa_read_notifs');
+    if (storedReadNotifs) {
+      setReadNotifs(JSON.parse(storedReadNotifs));
+    }
+
+    // PWA Prompt
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -73,6 +83,35 @@ export function Header() {
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
     return () => window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
   }, []);
+
+  // --- SINKRONISASI NOTIFIKASI YANG DIBACA DARI FIREBASE (LINTAS PERANGKAT) ---
+  useEffect(() => {
+    if (!user) return;
+
+    const syncReadNotifications = async () => {
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+        
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          if (data.readNotifications && Array.isArray(data.readNotifications)) {
+            // Gabungkan yang ada di localStorage dan di Firebase untuk mencegah kehilangan data
+            setReadNotifs(prev => {
+              const combined = Array.from(new Set([...prev, ...data.readNotifications]));
+              localStorage.setItem('nexa_read_notifs', JSON.stringify(combined));
+              return combined;
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Gagal sinkronisasi data notifikasi dari database", error);
+      }
+    };
+
+    syncReadNotifications();
+  }, [user]);
+  // -------------------------------------------------------------------------
 
   // --- LOGIKA MENGAMBIL DATA NOTIFIKASI TO-DO ---
   useEffect(() => {
@@ -85,7 +124,6 @@ export function Header() {
         const notes = await getUserNotes(user.uid);
         const todos = notes.filter((n: any) => n.isTodo && !n.isCompleted && n.dueDate);
         
-        // Ambil tanggal hari ini (Format YYYY-MM-DD lokal)
         const today = new Date();
         const offset = today.getTimezoneOffset() * 60000;
         const todayStr = (new Date(today.getTime() - offset)).toISOString().split('T')[0];
@@ -93,9 +131,11 @@ export function Header() {
         const newNotifs: NotificationItem[] = [];
 
         todos.forEach((todo: any) => {
+          const notifId = `notif-${todo.id}-${todayStr}`;
+
           if (todo.dueDate < todayStr) {
             newNotifs.push({
-              id: `notif-${todo.id}`,
+              id: notifId,
               title: "Tugas Terlewat!",
               message: `Tugas "${todo.title}" sudah melewati tenggat waktu.`,
               type: "overdue",
@@ -103,7 +143,7 @@ export function Header() {
             });
           } else if (todo.dueDate === todayStr) {
             newNotifs.push({
-              id: `notif-${todo.id}`,
+              id: notifId,
               title: "Tenggat Hari Ini",
               message: `Jangan lupa selesaikan tugas "${todo.title}" hari ini.`,
               type: "today",
@@ -113,17 +153,97 @@ export function Header() {
         });
 
         setNotifications(newNotifs);
+
+        // AUTO-PUSH NOTIFICATION SYSTEM
+        if (Notification.permission === 'granted' && newNotifs.length > 0) {
+          const lastPushed = localStorage.getItem('nexa_last_push_date');
+          if (lastPushed !== todayStr) {
+            
+            // Cek pengaturan getaran user dari Firestore sebelum nge-push
+            let useVibration = true;
+            try {
+              const userRef = doc(db, "users", user.uid);
+              const userSnap = await getDoc(userRef);
+              if (userSnap.exists() && userSnap.data().vibrationEnabled !== undefined) {
+                useVibration = userSnap.data().vibrationEnabled;
+              }
+            } catch (e) {
+              console.error("Gagal membaca setting getaran");
+            }
+
+            triggerSystemNotification("Pengingat Nexa", `Kamu punya ${newNotifs.length} tugas penting yang menunggumu hari ini!`, useVibration);
+            localStorage.setItem('nexa_last_push_date', todayStr);
+          }
+        }
+
       } catch (error) {
         console.error("Gagal memuat notifikasi", error);
       }
     };
 
     fetchNotifications();
-    // Memperbarui notifikasi setiap kali menu dibuka atau user berubah
   }, [user, isNotifOpen]);
-  // ----------------------------------------------
 
-  // --- FUNGSI MEMINTA IZIN NOTIFIKASI SISTEM (HP/DESKTOP) ---
+  // --- FUNGSI KLIK NOTIFIKASI (MENGHILANGKAN TITIK MERAH & BACKUP KE DATABASE) ---
+  const handleNotifClick = async (notifId: string) => {
+    setIsNotifOpen(false);
+    
+    if (!readNotifs.includes(notifId)) {
+      // 1. Optimistic UI Update (Cepat tanggap di UI lokal)
+      const updatedReadNotifs = [...readNotifs, notifId];
+      setReadNotifs(updatedReadNotifs);
+      localStorage.setItem('nexa_read_notifs', JSON.stringify(updatedReadNotifs));
+
+      // 2. Backup ke Database Firestore agar HP/Perangkat lain tersinkronisasi
+      if (user) {
+        try {
+          const userRef = doc(db, "users", user.uid);
+          await updateDoc(userRef, {
+            readNotifications: arrayUnion(notifId)
+          });
+        } catch (error: any) {
+          // Jika dokumen user belum pernah dibuat, kita buatkan sekalian
+          if (error.code === 'not-found') {
+            try {
+              const userRef = doc(db, "users", user.uid);
+              await setDoc(userRef, { readNotifications: [notifId] }, { merge: true });
+            } catch (err) {
+              console.error("Gagal membuat profil user untuk notifikasi", err);
+            }
+          } else {
+            console.error("Gagal menyimpan status baca ke database", error);
+          }
+        }
+      }
+    }
+  };
+
+  const unreadCount = notifications.filter(n => !readNotifs.includes(n.id)).length;
+
+  // --- FUNGSI TRIGGER NOTIFIKASI SISTEM (HP/DESKTOP) ---
+  const triggerSystemNotification = async (title: string, body: string, vibrate: boolean = true) => {
+    if (!('Notification' in window)) return;
+
+    if (Notification.permission === 'granted') {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        if (registration) {
+          await registration.showNotification(title, {
+            body: body,
+            icon: "/icon-192x192.png", 
+            vibrate: vibrate ? [200, 100, 200, 100, 200] : [], // Pola getar menyesuaikan setting
+            tag: "nexa-reminder",
+            requireInteraction: true 
+          } as any); 
+        } else {
+          new Notification(title, { body: body, vibrate: vibrate ? [200, 100, 200] : [] } as any); 
+        }
+      } catch (error) {
+        new Notification(title, { body: body });
+      }
+    }
+  };
+
   const handleRequestPushPermission = async () => {
     if (!('Notification' in window)) {
       showAlert("Tidak Didukung", "Browser atau perangkat kamu tidak mendukung notifikasi sistem.");
@@ -135,11 +255,16 @@ export function Header() {
       setPushPermission(permission);
 
       if (permission === 'granted') {
-        // Tembakkan notifikasi percobaan
-        new Notification("Nexa AI", {
-          body: "Yey! Notifikasi berhasil diaktifkan. Kamu tidak akan melewatkan tugas lagi.",
-          icon: "/icon-192x192.png" // Pastikan kamu punya icon PWA nanti
-        });
+        // Ambil setting getaran untuk notif percobaan
+        let useVibration = true;
+        if (user) {
+          const userRef = doc(db, "users", user.uid);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists() && userSnap.data().vibrationEnabled !== undefined) {
+            useVibration = userSnap.data().vibrationEnabled;
+          }
+        }
+        triggerSystemNotification("Nexa AI Terhubung!", "Notifikasi berhasil diaktifkan. Pengingatmu akan muncul di sini.", useVibration);
       } else {
         showAlert("Izin Ditolak", "Kamu menolak izin notifikasi. Kamu bisa mengubahnya nanti di pengaturan browser.");
       }
@@ -147,7 +272,6 @@ export function Header() {
       console.error("Error requesting permission", error);
     }
   };
-  // ----------------------------------------------------------
 
   // Logika Scroll untuk Header
   useEffect(() => {
@@ -205,16 +329,16 @@ export function Header() {
               <button
                 onClick={() => {
                   setIsNotifOpen(!isNotifOpen);
-                  setIsMenuOpen(false); // Tutup menu lain jika terbuka
+                  setIsMenuOpen(false);
                 }}
                 className="relative p-2 rounded-full hover:bg-muted transition-colors"
               >
-                {notifications.length > 0 ? (
+                {unreadCount > 0 ? (
                   <>
                     <BellRing className="h-5 w-5 text-orange-500 animate-pulse" />
-                    <span className="absolute top-1 right-1.5 flex h-2.5 w-2.5">
+                    <span className="absolute top-1 right-1.5 flex h-3 w-3">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500 border border-background"></span>
+                      <span className="relative inline-flex items-center justify-center rounded-full h-3 w-3 bg-red-500 border-2 border-background"></span>
                     </span>
                   </>
                 ) : (
@@ -227,7 +351,7 @@ export function Header() {
             <button
               onClick={() => {
                 setIsMenuOpen(!isMenuOpen);
-                setIsNotifOpen(false); // Tutup panel notif jika menu dibuka
+                setIsNotifOpen(false);
               }}
               className="p-2 rounded-full hover:bg-muted transition-colors"
             >
@@ -242,9 +366,11 @@ export function Header() {
               <div className="absolute top-14 right-4 mt-2 w-[300px] max-w-[calc(100vw-32px)] rounded-2xl border border-border bg-card shadow-2xl py-2 animate-in fade-in slide-in-from-top-2 z-50 overflow-hidden flex flex-col max-h-[80vh]">
                 <div className="px-4 py-3 border-b border-border/50 bg-muted/30 flex items-center justify-between sticky top-0">
                   <p className="font-bold text-sm">Notifikasi</p>
-                  <div className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
-                    {notifications.length} Baru
-                  </div>
+                  {unreadCount > 0 && (
+                    <div className="text-xs bg-red-500/10 text-red-500 px-2 py-0.5 rounded-full font-bold">
+                      {unreadCount} Baru
+                    </div>
+                  )}
                 </div>
 
                 <div className="overflow-y-auto">
@@ -255,22 +381,28 @@ export function Header() {
                     </div>
                   ) : (
                     <div className="flex flex-col">
-                      {notifications.map((notif) => (
-                        <Link 
-                          key={notif.id} 
-                          href={`/edit-todo/${notif.todoId}`}
-                          onClick={() => setIsNotifOpen(false)}
-                          className="flex items-start gap-3 p-4 border-b border-border/50 hover:bg-muted/50 transition-colors"
-                        >
-                          <div className={`p-2 rounded-full shrink-0 ${notif.type === 'overdue' ? 'bg-destructive/10 text-destructive' : 'bg-orange-500/10 text-orange-500'}`}>
-                            {notif.type === 'overdue' ? <AlertTriangle className="w-4 h-4" /> : <CalendarClock className="w-4 h-4" />}
-                          </div>
-                          <div>
-                            <p className={`text-sm font-bold ${notif.type === 'overdue' ? 'text-destructive' : 'text-orange-500'}`}>{notif.title}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notif.message}</p>
-                          </div>
-                        </Link>
-                      ))}
+                      {notifications.map((notif) => {
+                        const isRead = readNotifs.includes(notif.id);
+                        return (
+                          <Link 
+                            key={notif.id} 
+                            href={`/edit-todo/${notif.todoId}`}
+                            onClick={() => handleNotifClick(notif.id)}
+                            className={`relative flex items-start gap-3 p-4 border-b border-border/50 transition-colors ${isRead ? 'bg-background opacity-70' : 'bg-muted/20 hover:bg-muted/50'}`}
+                          >
+                            {!isRead && (
+                              <div className="absolute left-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-red-500 rounded-full"></div>
+                            )}
+                            <div className={`p-2 rounded-full shrink-0 ml-2 ${notif.type === 'overdue' ? 'bg-destructive/10 text-destructive' : 'bg-orange-500/10 text-orange-500'}`}>
+                              {notif.type === 'overdue' ? <AlertTriangle className="w-4 h-4" /> : <CalendarClock className="w-4 h-4" />}
+                            </div>
+                            <div>
+                              <p className={`text-sm font-bold ${notif.type === 'overdue' ? 'text-destructive' : 'text-orange-500'}`}>{notif.title}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notif.message}</p>
+                            </div>
+                          </Link>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -278,7 +410,7 @@ export function Header() {
                 {/* Banner Setup Push Notification */}
                 {pushPermission !== 'granted' && (
                   <div className="p-3 bg-blue-500/5 border-t border-blue-500/10 mt-auto">
-                    <p className="text-[10px] text-muted-foreground mb-2 text-center">Nyalakan notifikasi perangkat agar tidak ketinggalan jadwal.</p>
+                    <p className="text-[10px] text-muted-foreground mb-2 text-center">Nyalakan notifikasi perangkat agar HP mu bergetar untuk jadwal penting.</p>
                     <Button onClick={handleRequestPushPermission} size="sm" className="w-full h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
                       <BellRing className="w-3 h-3 mr-2" /> Aktifkan Notifikasi HP
                     </Button>

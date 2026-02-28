@@ -4,6 +4,8 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 export interface UserProfile {
   whatsappNumber?: string;
   pinCode?: string; // Tambahan untuk fitur Brankas Rahasia
+  vibrationEnabled?: boolean; // Preferensi getaran notifikasi perangkat
+  readNotifications?: string[]; // Menyimpan ID notifikasi yang sudah dibaca user
 }
 
 // Mengambil data profil user
