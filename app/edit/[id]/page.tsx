@@ -3,27 +3,23 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { getNote, updateNote, deleteNote } from "@/lib/notes-service";
+import { getNote, updateNote, deleteNote, getUserNotes } from "@/lib/notes-service"; // <-- Tambahkan getUserNotes
 import { TiptapEditor } from "@/components/ui/tiptap-editor";
 import { Button } from "@/components/ui/button";
 import { 
-  Loader2, Save, ArrowLeft, Wand2, 
+  Loader2, Save, ArrowLeft,
   Tag as TagIcon, Lock, Unlock, 
   Sparkles, X, Download, FileText, File, Printer,
   Camera, Image as ImageIcon, Mic,
-  MessageSquare, Send, Bot, Network,
-  ZoomIn, ZoomOut, Maximize, Share2, Trash2 // <-- Perbaikan Import di sini
+  Share2, Trash2 
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
 import { useGemini } from "@/hooks/use-gemini"; 
-import { useTheme } from "next-themes";
-import mermaid from "mermaid"; 
-
-interface ChatMessage {
-  role: "user" | "ai";
-  content: string;
-}
+// Impor komponen yang baru diekstrak
+import { AiToolbar } from "@/components/notes/ai-toolbar";
+import { ChatOverlay } from "@/components/notes/chat-overlay";
+import { MindMapViewer } from "@/components/notes/mindmap-viewer";
 
 export default function EditNotePage() {
   const { user } = useAuth();
@@ -33,89 +29,41 @@ export default function EditNotePage() {
   
   const { showAlert, showQuotaAlert, showConfirm } = useModal(); 
   const { callAI } = useGemini(); 
-  const { theme } = useTheme();
   
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   
-  // State Tags
+  // State Tags & Privasi
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
-  
-  // State Privasi
   const [isHidden, setIsHidden] = useState(false);
 
-  // State Ekspor, Loading & Editor Key
+  // State UI Ekspor & Loading
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSummarizing, setIsSummarizing] = useState(false);
-  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
-  const [isFormatting, setIsFormatting] = useState(false); 
-  const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [editorKey, setEditorKey] = useState(0);
 
-  // Reference & State untuk OCR (Kamera & Galeri) dan Voice
+  // Referensi & State Hardware (Kamera/Voice)
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
 
-  // --- STATE CHAT DENGAN CATATAN (RAG) ---
+  // --- STATE AI (Menyederhanakan kontrol UI saja) ---
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
+  const [isFormatting, setIsFormatting] = useState(false); 
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState("");
-  const [isChatLoading, setIsChatLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // --- STATE & REFERENCE UNTUK MIND MAP ---
   const [isGeneratingMindMap, setIsGeneratingMindMap] = useState(false);
   const [mindMapCode, setMindMapCode] = useState<string | null>(null);
-  const mindMapRef = useRef<HTMLDivElement>(null);
-  const [zoomLevel, setZoomLevel] = useState(1); // <-- TAMBAHAN STATE ZOOM
 
-  // Auto-scroll ke pesan terbaru
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages, isChatLoading]);
+  // --- STATE UNTUK BI-DIRECTIONAL LINKING ---
+  const [availableNotes, setAvailableNotes] = useState<{ id: string; title: string }[]>([]);
 
-  // Efek untuk Render Mermaid JS
-  useEffect(() => {
-    if (mindMapCode && mindMapRef.current) {
-      try {
-        mermaid.initialize({ 
-          startOnLoad: false, 
-          theme: theme === 'dark' ? 'dark' : 'default',
-          securityLevel: 'loose' 
-        });
-        
-        // Bersihkan kontainer sebelum merender yang baru
-        mindMapRef.current.innerHTML = '';
-        
-        // Render sintaks mermaid
-        mermaid.render('mermaid-mindmap-svg', mindMapCode).then((result) => {
-          if (mindMapRef.current) {
-            mindMapRef.current.innerHTML = result.svg;
-          }
-        }).catch((err) => {
-          console.error("Mermaid async render error", err);
-          throw err;
-        });
-
-      } catch (err) {
-        console.error("Mermaid initialization error", err);
-        if (mindMapRef.current) {
-           mindMapRef.current.innerHTML = `
-             <div class="text-center text-destructive p-4 border border-destructive/20 rounded-xl bg-destructive/10">
-               <p class="font-bold mb-1">Gagal Merender Mind Map</p>
-               <p class="text-xs">AI memberikan struktur diagram yang tidak valid. Silakan coba generate ulang.</p>
-             </div>
-           `;
-        }
-      }
-    }
-  }, [mindMapCode, theme]);
-
+  // Fetch catatan yang sedang diedit
   useEffect(() => {
     const fetchNote = async () => {
       if (!user || !noteId) return;
@@ -126,7 +74,7 @@ export default function EditNotePage() {
           setContent(noteData.content);
           setTags(noteData.tags || []);
           setIsHidden((noteData as any).isHidden || false);
-          setMindMapCode((noteData as any).mindmapCode || null); // <-- TAMBAHAN: Load Mind Map jika ada
+          setMindMapCode((noteData as any).mindmapCode || null);
         } else {
           showAlert("Akses Ditolak", "Catatan tidak ditemukan atau kamu tidak memiliki akses.");
           router.push("/");
@@ -142,6 +90,21 @@ export default function EditNotePage() {
 
     fetchNote();
   }, [user, noteId, router, showAlert]); 
+
+  // Fetch SEMUA catatan untuk fitur "Link to Note", KECUALI catatan yang sedang diedit ini
+  useEffect(() => {
+    if (user && noteId) {
+      getUserNotes(user.uid).then(notes => {
+        const formattedNotes = notes
+          .filter((n: any) => n.id !== noteId) // Cegah self-linking
+          .map((n: any) => ({
+            id: n.id,
+            title: n.title || "Tanpa Judul"
+          }));
+        setAvailableNotes(formattedNotes);
+      }).catch(err => console.error("Gagal memuat catatan untuk linking", err));
+    }
+  }, [user, noteId]);
 
   if (!user) {
     return (
@@ -300,11 +263,6 @@ export default function EditNotePage() {
 
   // --- LOGIKA AI SUPERPOWERS ---
   const handleAutoFormat = async () => {
-    if (!content.replace(/<[^>]+>/g, '').trim()) {
-      showAlert("Perhatian", "Teks masih kosong! Ketik sesuatu dulu untuk disulap AI.");
-      return;
-    }
-
     setIsFormatting(true);
     try {
       const result = await callAI({ action: "auto-format", content: content });
@@ -315,47 +273,31 @@ export default function EditNotePage() {
         showAlert("Berhasil! ✨", "Teks acakmu sudah disulap menjadi rapi dan terstruktur.");
       }
     } catch (error: any) {
-      if (error.message === "QUOTA_EXCEEDED") {
-        showQuotaAlert();
-      } else {
-        console.error("Gagal merapikan teks", error);
-      }
+      if (error.message === "QUOTA_EXCEEDED") showQuotaAlert();
+      else console.error("Gagal merapikan teks", error);
     } finally {
       setIsFormatting(false);
     }
   };
 
   const handleSummarize = async () => {
-    const plainText = content.replace(/<[^>]+>/g, ' ').trim();
-    if (!plainText && !title) {
-      showAlert("Perhatian", "Catatan masih kosong! Tulis sesuatu dulu untuk dirangkum.");
-      return;
-    }
-
     setIsSummarizing(true);
     try {
+      const plainText = content.replace(/<[^>]+>/g, ' ').trim();
       const result = await callAI({ action: "summarize", content: `Judul: ${title}\n\nIsi: ${plainText}` });
       setAiSummary(result);
     } catch (error: any) {
-      if (error.message === "QUOTA_EXCEEDED") {
-        showQuotaAlert();
-      } else {
-        console.error("Gagal merangkum", error);
-      }
+      if (error.message === "QUOTA_EXCEEDED") showQuotaAlert();
+      else console.error("Gagal merangkum", error);
     } finally {
       setIsSummarizing(false);
     }
   };
 
   const handleGenerateTags = async () => {
-    const plainText = content.replace(/<[^>]+>/g, ' ').trim();
-    if (!plainText && !title) {
-      showAlert("Perhatian", "Tulis sesuatu dulu agar AI bisa menebak tag-nya!");
-      return;
-    }
-
     setIsGeneratingTags(true);
     try {
+      const plainText = content.replace(/<[^>]+>/g, ' ').trim();
       const result = await callAI({ action: "auto-tag", content: `Judul: ${title}\n\nIsi: ${plainText}` });
       if (result) {
         const newTags = result.split(',').map((t: string) => t.trim().replace(/^#/, '')).filter(Boolean);
@@ -363,85 +305,31 @@ export default function EditNotePage() {
         setTags(uniqueTags);
       }
     } catch (error: any) {
-      if (error.message === "QUOTA_EXCEEDED") {
-        showQuotaAlert();
-      } else {
-        console.error("Gagal menebak tag", error);
-      }
+      if (error.message === "QUOTA_EXCEEDED") showQuotaAlert();
+      else console.error("Gagal menebak tag", error);
     } finally {
       setIsGeneratingTags(false);
     }
   };
 
-  // --- LOGIKA MIND MAP ---
   const handleGenerateMindMap = async () => {
-    const plainText = content.replace(/<[^>]+>/g, ' ').trim();
-    if (!plainText && !title) {
-      showAlert("Perhatian", "Catatan masih kosong! Tulis sesuatu dulu untuk dijadikan Peta Konsep.");
-      return;
-    }
-
     setIsGeneratingMindMap(true);
     try {
+      const plainText = content.replace(/<[^>]+>/g, ' ').trim();
       const result = await callAI({ action: "mindmap", content: `Judul: ${title}\n\nIsi: ${plainText}` });
       if (result) {
         const cleanCode = result.replace(/```mermaid/g, '').replace(/```/g, '').trim();
         setMindMapCode(cleanCode);
       }
     } catch (error: any) {
-      if (error.message === "QUOTA_EXCEEDED") {
-        showQuotaAlert();
-      } else {
-        console.error("Gagal membuat mind map", error);
-      }
+      if (error.message === "QUOTA_EXCEEDED") showQuotaAlert();
+      else console.error("Gagal membuat mind map", error);
     } finally {
       setIsGeneratingMindMap(false);
     }
   };
-  // -----------------------
 
-  // --- LOGIKA CHAT DENGAN CATATAN ---
-  const formatMessageContent = (text: string) => {
-    let formattedText = text;
-    formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    formattedText = formattedText.replace(/\*(.*?)\*/g, '<em>$1</em>');
-    formattedText = formattedText.replace(/\n/g, '<br />');
-    return formattedText;
-  };
-
-  const handleSendChat = async () => {
-    if (!chatInput.trim()) return;
-
-    const userMessage = chatInput.trim();
-    setChatInput("");
-    setChatMessages(prev => [...prev, { role: "user", content: userMessage }]);
-    setIsChatLoading(true);
-
-    try {
-      const plainText = content.replace(/<[^>]+>/g, ' ').trim();
-      const contextStr = `Judul: ${title || 'Tanpa Judul'}\n\nIsi Catatan:\n${plainText}`;
-      
-      const result = await callAI({ 
-        action: "chat", 
-        prompt: userMessage,
-        context: contextStr
-      });
-
-      setChatMessages(prev => [...prev, { role: "ai", content: result }]);
-    } catch (error: any) {
-      if (error.message === "QUOTA_EXCEEDED") {
-        showQuotaAlert();
-        setChatMessages(prev => prev.slice(0, -1));
-      } else {
-        setChatMessages(prev => [...prev, { role: "ai", content: "Aduh, aku gagal merespons permintaanmu. Coba lagi ya!" }]);
-      }
-    } finally {
-      setIsChatLoading(false);
-    }
-  };
-  // ---------------------------------
-
-  // --- FUNGSI SCAN GAMBAR KE TEKS (OCR) ---
+  // --- FUNGSI HARDWARE (OCR & VOICE) ---
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -453,15 +341,8 @@ export default function EditNotePage() {
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64String = (reader.result as string).split(',')[1];
-        const mimeType = file.type;
-
         try {
-          const extractedHtml = await callAI({ 
-            action: "ocr", 
-            imageBase64: base64String, 
-            mimeType: mimeType 
-          });
-
+          const extractedHtml = await callAI({ action: "ocr", imageBase64: base64String, mimeType: file.type });
           const cleanHtml = extractedHtml?.replace(/```html/g, '').replace(/```/g, '').trim();
 
           if (!cleanHtml || cleanHtml === "") {
@@ -470,13 +351,9 @@ export default function EditNotePage() {
             setContent((prev) => prev + (prev ? "<br><br>" : "") + cleanHtml);
             setEditorKey(prev => prev + 1);
           }
-
         } catch (apiError: any) {
-          if (apiError.message === "QUOTA_EXCEEDED") {
-            showQuotaAlert();
-          } else {
-            console.error("Gagal scan OCR", apiError);
-          }
+          if (apiError.message === "QUOTA_EXCEEDED") showQuotaAlert();
+          else console.error("Gagal scan OCR", apiError);
         } finally {
           setIsScanning(false);
         }
@@ -488,7 +365,6 @@ export default function EditNotePage() {
     }
   };
 
-  // --- FUNGSI VOICE TO TEXT (SPEECH RECOGNITION) ---
   const handleVoiceRecord = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -536,9 +412,7 @@ export default function EditNotePage() {
             finalTags = result.split(',').map((t: string) => t.trim().replace(/^#/, '')).filter(Boolean);
           }
         } catch (e: any) {
-          if (e.message !== "QUOTA_EXCEEDED") {
-            console.error("Auto-tagging gagal...", e);
-          }
+          if (e.message !== "QUOTA_EXCEEDED") console.error("Auto-tagging gagal...", e);
         }
       }
 
@@ -547,7 +421,7 @@ export default function EditNotePage() {
         content: content,
         tags: finalTags,
         isHidden: isHidden,
-        mindmapCode: mindMapCode, // <-- TAMBAHAN: Simpan mind map ke database
+        mindmapCode: mindMapCode,
       } as any);
       
       router.push("/notes"); 
@@ -557,6 +431,8 @@ export default function EditNotePage() {
       setIsSaving(false);
     }
   };
+
+  const plainTextLength = content.replace(/<[^>]+>/g, '').trim().length;
 
   return (
     <>
@@ -644,36 +520,20 @@ export default function EditNotePage() {
             </Button>
           </div>
 
-          {/* --- TOOLBAR 2: Asisten AI --- */}
-          <div className="bg-gradient-to-r from-primary/5 via-purple-500/5 to-cyan-500/5 border border-primary/20 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 print:hidden">
-            <div className="flex items-center gap-2.5 px-1">
-              <div className="p-1.5 bg-primary/20 rounded-lg text-primary shadow-sm">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-foreground">Nexa AI Assistant</p>
-                <p className="text-[10px] text-muted-foreground">Bantu rapikan catatanmu</p>
-              </div>
-            </div>
-            
-            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-              <Button variant="outline" size="sm" onClick={() => setIsChatOpen(true)} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 shadow-sm whitespace-nowrap">
-                <MessageSquare className="w-3 h-3 mr-1.5" /> Tanya AI
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleGenerateMindMap} disabled={isGeneratingMindMap || !content.replace(/<[^>]+>/g, '').trim()} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 shadow-sm whitespace-nowrap">
-                {isGeneratingMindMap ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Network className="w-3 h-3 mr-1.5" />} Mind Map
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleAutoFormat} disabled={isFormatting || !content.replace(/<[^>]+>/g, '').trim()} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20 shadow-sm whitespace-nowrap">
-                {isFormatting ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1.5" />} Rapihkan
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleGenerateTags} disabled={isGeneratingTags || (!title.trim() && !content.replace(/<[^>]+>/g, '').trim())} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-primary/10 text-primary border-primary/20 shadow-sm whitespace-nowrap">
-                {isGeneratingTags ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <TagIcon className="w-3 h-3 mr-1.5" />} Tebak Tag
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleSummarize} disabled={isSummarizing || (!title.trim() && !content.replace(/<[^>]+>/g, '').trim())} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 shadow-sm whitespace-nowrap">
-                {isSummarizing ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Wand2 className="w-3 h-3 mr-1.5" />} Ringkas Isi
-              </Button>
-            </div>
-          </div>
+          {/* --- TOOLBAR 2: Asisten AI (Extracted Component) --- */}
+          <AiToolbar 
+            onOpenChat={() => setIsChatOpen(true)}
+            onGenerateMindMap={handleGenerateMindMap}
+            onAutoFormat={handleAutoFormat}
+            onGenerateTags={handleGenerateTags}
+            onSummarize={handleSummarize}
+            isGeneratingMindMap={isGeneratingMindMap}
+            isFormatting={isFormatting}
+            isGeneratingTags={isGeneratingTags}
+            isSummarizing={isSummarizing}
+            isContentEmpty={plainTextLength === 0}
+            isTitleAndContentEmpty={!title.trim() && plainTextLength === 0}
+          />
 
           {/* Tampilan Hasil Ringkasan AI */}
           {aiSummary && (
@@ -690,7 +550,13 @@ export default function EditNotePage() {
 
           {/* Editor Teks */}
           <div className="pt-2 print:text-black">
-            <TiptapEditor key={editorKey} content={content} onChange={setContent} />
+            {/* OPER AVAILABLE NOTES KE EDITOR */}
+            <TiptapEditor 
+              key={editorKey} 
+              content={content} 
+              onChange={setContent} 
+              availableNotes={availableNotes} 
+            />
           </div>
         </div>
 
@@ -721,125 +587,17 @@ export default function EditNotePage() {
         </div>
       </div>
 
-      {/* --- PANEL OVERLAY: MIND MAP VIEWER --- */}
+      {/* Ekstrak Komponen Overlay */}
       {mindMapCode && (
-        <div className="fixed inset-0 z-[100] bg-background/95 backdrop-blur-md flex flex-col animate-in fade-in zoom-in-95 duration-300">
-          <div className="flex items-center justify-between p-4 border-b border-border/50 bg-muted/30">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-rose-500/10 flex items-center justify-center">
-                <Network className="w-5 h-5 text-rose-500" />
-              </div>
-              <div>
-                <h3 className="font-bold text-base leading-tight">Peta Konsep (Mind Map)</h3>
-                <p className="text-[11px] text-muted-foreground">Di-generate otomatis oleh Nexa AI</p>
-              </div>
-            </div>
-            <Button variant="ghost" size="icon" className="rounded-full hover:bg-muted" onClick={() => setMindMapCode(null)}>
-              <X className="w-5 h-5" />
-            </Button>
-          </div>
-          
-          <div className="flex-1 overflow-auto p-4 flex items-center justify-center w-full h-full relative">
-            
-            {/* KONTROL ZOOM PADA MIND MAP */}
-            <div className="absolute bottom-6 right-6 z-50 flex gap-2 bg-background/80 backdrop-blur-md p-1.5 rounded-2xl border border-border shadow-lg">
-              <Button variant="ghost" size="icon" onClick={() => setZoomLevel(prev => Math.max(prev - 0.2, 0.4))} className="rounded-xl hover:bg-muted">
-                <ZoomOut className="w-4 h-4" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => setZoomLevel(1)} className="rounded-xl hover:bg-muted font-bold text-xs w-10">
-                {Math.round(zoomLevel * 100)}%
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => setZoomLevel(prev => Math.min(prev + 0.2, 3))} className="rounded-xl hover:bg-muted">
-                <ZoomIn className="w-4 h-4" />
-              </Button>
-            </div>
-
-            {/* Tempat hasil render Mermaid JS dengan transformasi Scale */}
-            <div className="w-full h-full flex items-center justify-center min-h-[500px] min-w-[500px]">
-              <div 
-                ref={mindMapRef} 
-                className="transition-transform duration-200 ease-out origin-center"
-                style={{ transform: `scale(${zoomLevel})` }}
-              />
-            </div>
-          </div>
-        </div>
+        <MindMapViewer code={mindMapCode} onClose={() => setMindMapCode(null)} />
       )}
 
-      {/* --- PANEL SLIDER: CHAT DENGAN CATATAN --- */}
-      {isChatOpen && (
-        <div className="fixed inset-0 z-[60] bg-background/80 backdrop-blur-sm md:hidden" onClick={() => setIsChatOpen(false)} />
-      )}
-
-      <div className={`fixed inset-y-0 right-0 z-[70] w-full md:w-[400px] bg-card border-l border-border shadow-2xl transform transition-transform duration-500 ease-in-out flex flex-col ${isChatOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-        {/* Chat Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border/50 bg-muted/30">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center shadow-md">
-              <Bot className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h3 className="font-bold text-base leading-tight">Nexa AI Chat</h3>
-              <p className="text-[11px] text-muted-foreground">Tanya apapun soal catatan ini</p>
-            </div>
-          </div>
-          <Button variant="ghost" size="icon" className="rounded-full hover:bg-muted" onClick={() => setIsChatOpen(false)}>
-            <X className="w-5 h-5" />
-          </Button>
-        </div>
-
-        {/* Chat Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {chatMessages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-center opacity-50 space-y-3">
-              <MessageSquare className="w-12 h-12" />
-              <p className="text-sm">Belum ada obrolan.<br/>Tanyakan inti, ide, atau ringkasan spesifik dari catatan ini!</p>
-            </div>
-          )}
-          {chatMessages.map((msg, i) => (
-            <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-              {msg.role === "ai" && (
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-1">
-                  <Bot className="w-4 h-4 text-primary" />
-                </div>
-              )}
-              <div 
-                className={`px-4 py-2.5 text-sm rounded-2xl max-w-[85%] leading-relaxed ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-tr-sm" : "bg-muted rounded-tl-sm border border-border/50"}`}
-                dangerouslySetInnerHTML={{ __html: msg.role === "ai" ? formatMessageContent(msg.content) : msg.content }}
-              />
-            </div>
-          ))}
-          
-          {isChatLoading && (
-            <div className="flex gap-3 justify-start">
-              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-1">
-                <Bot className="w-4 h-4 text-primary" />
-              </div>
-              <div className="px-4 py-3 bg-muted rounded-2xl rounded-tl-sm border border-border/50 flex gap-1.5 items-center h-10">
-                <span className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" />
-                <span className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce delay-75" />
-                <span className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce delay-150" />
-              </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Chat Input */}
-        <div className="p-4 border-t border-border/50 bg-background flex gap-2">
-          <input
-            type="text"
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
-            placeholder="Ketik pertanyaanmu..."
-            className="flex-1 bg-muted px-4 py-3 text-sm rounded-xl outline-none focus:ring-2 focus:ring-primary/50 transition-all placeholder:text-muted-foreground/50"
-          />
-          <Button size="icon" className="rounded-xl shrink-0 h-12 w-12 shadow-md bg-primary hover:bg-primary/90" onClick={handleSendChat} disabled={isChatLoading || !chatInput.trim()}>
-            <Send className="w-5 h-5 ml-0.5" />
-          </Button>
-        </div>
-      </div>
+      <ChatOverlay 
+        isOpen={isChatOpen} 
+        onClose={() => setIsChatOpen(false)} 
+        noteTitle={title}
+        noteContent={content}
+      />
     </>
   );
 }

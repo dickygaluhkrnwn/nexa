@@ -3,31 +3,33 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { addNote, SubTask } from "@/lib/notes-service"; // Import SubTask
+import { addNote, SubTask } from "@/lib/notes-service"; 
 import { Button } from "@/components/ui/button";
-import { 
-  Loader2, Save, ArrowLeft, Calendar, 
-  AlignLeft, Repeat, Clock, ListTodo, Plus, X, Circle
-} from "lucide-react";
+import { Loader2, Save, ArrowLeft, AlignLeft, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
+import { useGemini } from "@/hooks/use-gemini"; // <-- IMPORT HOOK AI
+
+// Import komponen yang sudah direfactor
+import { SubTaskList } from "@/components/todo/sub-task-list";
+import { TaskSettings } from "@/components/todo/task-settings";
 
 export default function CreateTodoPage() {
   const { user } = useAuth();
   const router = useRouter();
   const { showAlert } = useModal(); 
+  const { callAI } = useGemini(); // <-- PANGGIL HOOK AI
   
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState(""); 
   const [recurrence, setRecurrence] = useState("none");
-  
-  // State untuk Sub-Tasks
   const [subTasks, setSubTasks] = useState<SubTask[]>([]);
-  const [newSubTask, setNewSubTask] = useState("");
   
   const [isSaving, setIsSaving] = useState(false);
+  const [isAiLoading, setIsAiLoading] = useState(false);
 
   if (!user) {
     return (
@@ -37,21 +39,6 @@ export default function CreateTodoPage() {
       </div>
     );
   }
-
-  const handleAddSubTask = () => {
-    if (!newSubTask.trim()) return;
-    const newTask: SubTask = {
-      id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-      text: newSubTask.trim(),
-      isCompleted: false
-    };
-    setSubTasks([...subTasks, newTask]);
-    setNewSubTask("");
-  };
-
-  const handleRemoveSubTask = (id: string) => {
-    setSubTasks(subTasks.filter(st => st.id !== id));
-  };
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -72,7 +59,7 @@ export default function CreateTodoPage() {
         isHidden: false,
         isPinned: false,
         isCompleted: false,
-        subTasks: subTasks, // Memasukkan sub-tugas ke database
+        subTasks: subTasks,
         userId: user.uid,
       } as any); 
       router.push("/todo");
@@ -82,6 +69,58 @@ export default function CreateTodoPage() {
       setIsSaving(false);
     }
   };
+
+  // --- LOGIKA AI PROJECT BREAKDOWN ---
+  const handleProjectBreakdown = async () => {
+    if (!title.trim()) {
+      showAlert("Perhatian", "Tuliskan judul proyeknya dulu ya agar AI mengerti apa yang akan dipecah!");
+      return;
+    }
+
+    setIsAiLoading(true);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const result = await callAI({ 
+        action: "project-breakdown", 
+        content: title,
+        context: `Hari ini adalah tanggal ${today}.`
+      });
+      
+      const jsonMatch = result.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        
+        if (parsed.subTasks && Array.isArray(parsed.subTasks)) {
+          const newSubTasks = parsed.subTasks.map((text: string, index: number) => ({
+            id: Date.now().toString() + index.toString(),
+            text: text,
+            isCompleted: false
+          }));
+          setSubTasks(prev => [...prev, ...newSubTasks]);
+        }
+        
+        if (parsed.description) {
+          setContent(prev => prev ? prev + "\n\n---\n🎯 AI Strategy:\n" + parsed.description : "🎯 AI Strategy:\n" + parsed.description);
+        }
+
+        if (parsed.recommendedDueDate && !dueDate) {
+          setDueDate(parsed.recommendedDueDate);
+        }
+        
+        showAlert("Berhasil! ✨", "AI telah menyusun rencana dan memecah proyekmu menjadi langkah-langkah praktis.");
+      } else {
+        throw new Error("Format respons tidak sesuai JSON.");
+      }
+    } catch (error: any) {
+      console.error("Gagal melakukan breakdown:", error);
+      if (error.message !== "QUOTA_EXCEEDED") {
+        showAlert("Gagal", "AI kebingungan mencerna rencanamu. Coba lengkapi judulnya sedikit.");
+      }
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+  // -----------------------------------
 
   return (
     <div className="pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto">
@@ -97,61 +136,32 @@ export default function CreateTodoPage() {
       </div>
 
       <div className="px-5 space-y-6 mt-2">
-        {/* Input Judul Utama */}
-        <div>
+        
+        {/* Input Judul Utama & Tombol AI Magic */}
+        <div className="space-y-3">
           <input 
             type="text" 
-            placeholder="Apa yang ingin kamu selesaikan?" 
+            placeholder="Apa proyek atau tugasmu?" 
             value={title} 
             onChange={(e) => setTitle(e.target.value)} 
             className="w-full text-3xl font-extrabold tracking-tight bg-transparent border-none outline-none placeholder:text-muted-foreground/40 focus:ring-0" 
             autoFocus 
           />
+          
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={handleProjectBreakdown} // <-- PASANG FUNGSI KLIK DISINI
+            disabled={!title.trim() || isAiLoading}
+            className="rounded-xl border-primary/30 text-primary bg-primary/5 hover:bg-primary/10 shadow-sm transition-all active:scale-95"
+          >
+            {isAiLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+            {isAiLoading ? "Sedang Merancang..." : "AI Project Breakdown"}
+          </Button>
         </div>
 
-        {/* Area Sub-Tasks (Checklist) */}
-        <div className="space-y-3 pt-2">
-          <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <ListTodo className="w-5 h-5" />
-            <h3 className="font-semibold text-sm uppercase tracking-wider">Sub-Tugas</h3>
-          </div>
-          
-          <div className="space-y-2">
-            {subTasks.map((st) => (
-              <div key={st.id} className="flex items-start gap-3 bg-card border border-border p-3 rounded-2xl group">
-                <Circle className="w-5 h-5 text-muted-foreground/50 shrink-0 mt-0.5" />
-                <span className="flex-1 text-sm font-medium leading-relaxed">{st.text}</span>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="w-7 h-7 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all rounded-full shrink-0" 
-                  onClick={() => handleRemoveSubTask(st.id)}
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-            ))}
-            
-            <div className="flex items-center gap-2 mt-2">
-              <input 
-                type="text" 
-                value={newSubTask} 
-                onChange={(e) => setNewSubTask(e.target.value)} 
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddSubTask();
-                  }
-                }}
-                placeholder="Tambah sub-tugas baru..." 
-                className="flex-1 bg-muted/50 border border-transparent focus:border-primary/30 px-4 py-3 text-sm rounded-2xl outline-none focus:ring-2 focus:ring-primary/50 transition-all placeholder:text-muted-foreground/60"
-              />
-              <Button onClick={handleAddSubTask} disabled={!newSubTask.trim()} className="h-11 w-11 rounded-2xl shrink-0 shadow-sm">
-                <Plus className="w-5 h-5" />
-              </Button>
-            </div>
-          </div>
-        </div>
+        {/* Area Sub-Tasks (Komponen Refactored) */}
+        <SubTaskList subTasks={subTasks} onChange={setSubTasks} />
 
         {/* Input Deskripsi Tambahan */}
         <div className="flex gap-3 pt-2">
@@ -166,51 +176,18 @@ export default function CreateTodoPage() {
 
         <div className="h-px w-full bg-border/50 my-2" />
 
-        {/* Pengaturan Tanggal, Waktu & Looping */}
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            {/* Tanggal */}
-            <div className="flex items-center gap-3 p-3 bg-card border border-border rounded-2xl transition-colors hover:border-primary/30 focus-within:border-primary/50">
-              <div className="p-2 bg-orange-500/10 rounded-xl"><Calendar className="w-5 h-5 text-orange-600" /></div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-orange-600 uppercase tracking-wider mb-0.5">Tenggat</p>
-                <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full text-sm bg-transparent border-none outline-none focus:ring-0 text-foreground font-medium p-0" />
-              </div>
-            </div>
-
-            {/* Waktu */}
-            <div className="flex items-center gap-3 p-3 bg-card border border-border rounded-2xl transition-colors hover:border-primary/30 focus-within:border-primary/50">
-              <div className="p-2 bg-blue-500/10 rounded-xl"><Clock className="w-5 h-5 text-blue-600" /></div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-0.5">Waktu</p>
-                <input type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} className="w-full text-sm bg-transparent border-none outline-none focus:ring-0 text-foreground font-medium p-0" />
-              </div>
-            </div>
-          </div>
-
-          {/* Looping */}
-          <div className="flex items-center gap-3 p-3 bg-card border border-border rounded-2xl transition-colors hover:border-primary/30 focus-within:border-primary/50">
-            <div className="p-2 bg-purple-500/10 rounded-xl"><Repeat className="w-5 h-5 text-purple-600" /></div>
-            <div className="flex-1">
-              <p className="text-xs font-semibold text-purple-600 uppercase tracking-wider mb-0.5">Pengulangan Rutin</p>
-              <select 
-                value={recurrence} 
-                onChange={(e) => setRecurrence(e.target.value)}
-                className="w-full text-sm bg-transparent border-none outline-none focus:ring-0 text-foreground font-medium p-0 appearance-none"
-              >
-                <option value="none" className="text-foreground bg-background">Hanya Sekali (Tidak Berulang)</option>
-                <option value="daily" className="text-foreground bg-background">Setiap Hari</option>
-                <option value="weekly" className="text-foreground bg-background">Setiap Minggu</option>
-                <option value="monthly" className="text-foreground bg-background">Setiap Bulan</option>
-              </select>
-            </div>
-          </div>
-        </div>
+        {/* Area Pengaturan Task (Komponen Refactored) */}
+        <TaskSettings 
+          dueDate={dueDate} setDueDate={setDueDate}
+          dueTime={dueTime} setDueTime={setDueTime}
+          recurrence={recurrence} setRecurrence={setRecurrence}
+        />
+        
       </div>
 
       {/* Floating Action Bar */}
-      <div className="fixed bottom-20 md:bottom-8 left-0 right-0 z-40 px-4">
-        <div className="max-w-2xl mx-auto flex justify-end">
+      <div className="fixed bottom-20 md:bottom-8 left-0 right-0 z-40 px-4 pointer-events-none">
+        <div className="max-w-2xl mx-auto flex justify-end pointer-events-auto">
           <Button onClick={handleSave} disabled={isSaving || !title.trim()} className="rounded-full px-8 py-6 bg-gradient-to-r from-orange-500 to-red-500 hover:opacity-90 shadow-xl text-white font-bold border-0">
             {isSaving ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Save className="w-5 h-5 mr-2" />} 
             {isSaving ? "Menyimpan..." : "Simpan Tugas"}

@@ -8,13 +8,14 @@ import {
   Loader2, CheckCircle2, 
   AlertCircle, Clock, CheckSquare, Pin, Repeat,
   LayoutList, CalendarDays, KanbanSquare, ChevronLeft, ChevronRight,
-  ListTodo
+  ListTodo, Sparkles, X, Target, Lightbulb
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
 import { TaskItem } from "@/components/todo/task-item"; 
 import { PomodoroTimer } from "@/components/todo/pomodoro-timer"; 
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"; 
+import { useGemini } from "@/hooks/use-gemini"; // <-- Import Hook AI
 
 interface TodoItem extends NoteData {
   id: string;
@@ -24,7 +25,6 @@ interface TodoItem extends NoteData {
 
 type ViewMode = 'list' | 'calendar' | 'kanban';
 
-// Helper Anti-Bug Zona Waktu (Pastikan tanggal lokal tidak geser ke UTC)
 const getLocalIsoDate = (d: Date) => {
   const offset = d.getTimezoneOffset() * 60000;
   return new Date(d.getTime() - offset).toISOString().split('T')[0];
@@ -32,7 +32,9 @@ const getLocalIsoDate = (d: Date) => {
 
 export default function TodoPage() {
   const { user, loading: authLoading } = useAuth();
-  const { showAlert, showConfirm } = useModal(); 
+  const { showAlert, showConfirm, showQuotaAlert } = useModal(); // <-- Tambahkan showQuotaAlert
+  const { callAI, isAiLoading } = useGemini(); // <-- Panggil AI Hook
+  
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -41,7 +43,9 @@ export default function TodoPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
-  // String hari ini untuk komparasi (Dijamin sesuai jam lokal HP)
+  // State untuk AI Weekly Review
+  const [reviewData, setReviewData] = useState<any>(null);
+
   const todayStr = useMemo(() => getLocalIsoDate(new Date()), []);
 
   const fetchTodos = async () => {
@@ -105,6 +109,51 @@ export default function TodoPage() {
     if (user) fetchTodos();
     else if (!authLoading) setLoading(false);
   }, [user, authLoading]); 
+
+  // --- LOGIKA AI WEEKLY REVIEW ---
+  const handleWeeklyReview = async () => {
+    // 1. Ambil tanggal 7 hari yang lalu
+    const lastWeek = new Date();
+    lastWeek.setDate(lastWeek.getDate() - 7);
+    const lastWeekStr = getLocalIsoDate(lastWeek);
+
+    // 2. Kumpulkan semua tugas dalam rentang 7 hari terakhir
+    const weeklyTasks = todos.filter(t => t.dueDate && t.dueDate >= lastWeekStr && t.dueDate <= todayStr);
+
+    if (weeklyTasks.length === 0) {
+      showAlert("Data Kurang", "Kamu belum memiliki data tugas dalam 7 hari terakhir untuk dianalisis oleh AI.");
+      return;
+    }
+
+    // 3. Ubah menjadi string/teks untuk dibaca AI
+    const contextStr = weeklyTasks.map(t => 
+      `- [${t.isCompleted ? 'Selesai' : 'Belum/Terlewat'}] ${t.title} (Target: ${t.dueDate})`
+    ).join('\n');
+
+    try {
+      const result = await callAI({
+        action: "weekly-review",
+        content: contextStr
+      });
+
+      const jsonMatch = result.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        setReviewData(parsed);
+      } else {
+        throw new Error("Format respons tidak sesuai JSON.");
+      }
+    } catch (error: any) {
+      console.error("Gagal melakukan review:", error);
+      // Tangkap error limit API dan arahkan ke funding modal
+      if (error.message === "QUOTA_EXCEEDED") {
+        showQuotaAlert();
+      } else {
+        showAlert("Gagal Menganalisis", "AI kebingungan memproses datamu atau terjadi gangguan server. Coba lagi nanti ya.");
+      }
+    }
+  };
+  // --------------------------------
 
   const toggleComplete = async (todo: TodoItem) => {
     if (!user) return; 
@@ -176,7 +225,6 @@ export default function TodoPage() {
     });
   };
 
-  // --- LOGIKA KANBAN & LIST DRAG & DROP DENGAN HELLO-PANGEA/DND ---
   const onDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId } = result;
 
@@ -205,10 +253,9 @@ export default function TodoPage() {
       if (todo.isPinned) return;
       updates = { isPinned: true, isCompleted: false };
     } else {
-      return; // Skip jika di-drop ke area yang tidak dizinkan (contoh: overdue)
+      return; 
     }
 
-    // Optimistic Update
     setTodos(todos.map(t => t.id === draggableId ? { ...t, ...updates } : t));
     
     try {
@@ -243,7 +290,6 @@ export default function TodoPage() {
   const pendingTodos = todos.filter(t => !t.isCompleted);
   const progressPercentage = todos.length > 0 ? Math.round((completedTodos.length / todos.length) * 100) : 0;
 
-  // --- RENDER HELPERS ---
   const renderListView = () => {
     const pinnedTodos = pendingTodos.filter(t => t.isPinned); 
     const unpinnedPending = pendingTodos.filter(t => !t.isPinned);
@@ -254,7 +300,7 @@ export default function TodoPage() {
     return (
       <div className="space-y-8 animate-in fade-in duration-300">
         
-        {/* DISEMATKAN (Droppable) */}
+        {/* DISEMATKAN */}
         <Droppable droppableId="pinned">
           {(provided, snapshot) => (
             <div ref={provided.innerRef} {...provided.droppableProps} className={`space-y-3 transition-all duration-200 ${snapshot.isDraggingOver ? 'bg-primary/5 p-3 -mx-3 rounded-2xl' : ''} ${pinnedTodos.length === 0 && !snapshot.isDraggingOver ? 'hidden' : 'block'}`}>
@@ -274,7 +320,7 @@ export default function TodoPage() {
           )}
         </Droppable>
 
-        {/* TERLEWAT (Tidak bisa ditarik ke sini) */}
+        {/* TERLEWAT */}
         {overdue.length > 0 && (
           <Droppable droppableId="overdue" isDropDisabled={true}>
             {(provided) => (
@@ -295,7 +341,7 @@ export default function TodoPage() {
           </Droppable>
         )}
 
-        {/* HARI INI (Droppable) */}
+        {/* HARI INI */}
         <Droppable droppableId="today">
           {(provided, snapshot) => (
             <div ref={provided.innerRef} {...provided.droppableProps} className={`space-y-3 transition-all duration-200 ${snapshot.isDraggingOver ? 'bg-orange-500/5 p-3 -mx-3 rounded-2xl' : ''}`}>
@@ -315,7 +361,7 @@ export default function TodoPage() {
           )}
         </Droppable>
 
-        {/* MENDATANG (Droppable) */}
+        {/* MENDATANG */}
         <Droppable droppableId="backlog">
           {(provided, snapshot) => (
             <div ref={provided.innerRef} {...provided.droppableProps} className={`space-y-3 transition-all duration-200 ${snapshot.isDraggingOver ? 'bg-primary/5 p-3 -mx-3 rounded-2xl' : ''}`}>
@@ -335,7 +381,7 @@ export default function TodoPage() {
           )}
         </Droppable>
 
-        {/* SELESAI (Droppable) */}
+        {/* SELESAI */}
         <Droppable droppableId="done">
           {(provided, snapshot) => (
             <div ref={provided.innerRef} {...provided.droppableProps} className={`space-y-3 pt-4 border-t border-border transition-all duration-200 ${snapshot.isDraggingOver ? 'bg-green-500/5 p-3 -mx-3 rounded-2xl border-t-transparent' : ''}`}>
@@ -373,7 +419,6 @@ export default function TodoPage() {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
     
-    // Helper untuk kalender
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const firstDayIndex = new Date(year, month, 1).getDay();
     
@@ -521,8 +566,11 @@ export default function TodoPage() {
     <div className="p-4 pb-24 space-y-6 max-w-6xl mx-auto">
       
       {/* Header Halaman & Progress */}
-      <div className="bg-card border border-border rounded-[2rem] p-5 shadow-sm space-y-4">
-        <div className="flex items-center justify-between">
+      <div className="bg-card border border-border rounded-[2rem] p-5 shadow-sm space-y-4 relative overflow-hidden">
+        {/* Dekorasi Aksen UI */}
+        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-purple-500/10 to-transparent rounded-bl-full pointer-events-none" />
+
+        <div className="flex items-start md:items-center justify-between flex-col md:flex-row gap-4 relative z-10">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-orange-500/10 rounded-xl"><CheckSquare className="w-6 h-6 text-orange-500" /></div>
             <div>
@@ -530,13 +578,27 @@ export default function TodoPage() {
               <p className="text-sm text-muted-foreground">{pendingTodos.length} tugas tersisa</p>
             </div>
           </div>
-          <Button asChild variant="outline" size="sm" className="rounded-full border-orange-500 text-orange-500 hover:bg-orange-500/10 hidden md:flex">
-            <Link href="/create-todo">Buat Tugas Baru</Link>
-          </Button>
+          
+          <div className="flex gap-2 w-full md:w-auto">
+            {/* Tombol AI Weekly Review */}
+            <Button 
+              variant="outline" 
+              onClick={handleWeeklyReview}
+              disabled={isAiLoading}
+              className="flex-1 md:flex-none rounded-xl border-purple-500/30 text-purple-600 bg-purple-500/5 hover:bg-purple-500/10 shadow-sm transition-all"
+            >
+              {isAiLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+              {isAiLoading ? "Menganalisis..." : "Weekly Review AI"}
+            </Button>
+            
+            <Button asChild variant="default" className="rounded-xl bg-orange-500 hover:bg-orange-600 shadow-sm text-white md:flex hidden">
+              <Link href="/create-todo">Buat Tugas</Link>
+            </Button>
+          </div>
         </div>
 
         {/* Tab Navigasi Mode */}
-        <div className="flex p-1 bg-muted rounded-xl w-full md:w-fit">
+        <div className="flex p-1 bg-muted rounded-xl w-full md:w-fit relative z-10">
           <button onClick={() => setViewMode('list')} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold rounded-lg transition-all ${viewMode === 'list' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
             <LayoutList className="w-4 h-4" /> <span className="hidden md:inline">Daftar</span>
           </button>
@@ -549,7 +611,7 @@ export default function TodoPage() {
         </div>
 
         {todos.length > 0 && viewMode === 'list' && (
-          <div className="space-y-2 pt-2">
+          <div className="space-y-2 pt-2 relative z-10">
             <div className="flex justify-between text-xs font-medium">
               <span>Progress Harian</span>
               <span className="text-primary">{progressPercentage}% Selesai</span>
@@ -581,6 +643,73 @@ export default function TodoPage() {
       {/* RENDER FLOATING POMODORO TIMER */}
       <PomodoroTimer />
       
+      {/* MODAL HASIL AI WEEKLY REVIEW */}
+      {reviewData && (
+        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-card border border-border p-6 md:p-8 rounded-[2rem] shadow-2xl w-full max-w-md animate-in zoom-in-95 relative overflow-hidden flex flex-col max-h-[85vh]">
+            
+            {/* Header Modal */}
+            <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500" />
+            <button onClick={() => setReviewData(null)} className="absolute top-4 right-4 p-2 bg-muted rounded-full hover:bg-muted-foreground/20 transition-colors z-10">
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-4 mb-6 mt-2 shrink-0">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-primary flex items-center justify-center text-white text-3xl font-black shadow-lg shadow-purple-500/20">
+                {reviewData.grade || "A"}
+              </div>
+              <div className="flex-1 pr-6">
+                <h2 className="font-extrabold text-xl leading-tight text-foreground">{reviewData.title}</h2>
+                <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mt-1">Nexa AI Evaluation</p>
+              </div>
+            </div>
+
+            {/* Area Scrollable Konten */}
+            <div className="space-y-6 overflow-y-auto custom-scrollbar pr-2 pb-4">
+              <div className="bg-purple-500/10 p-4 rounded-2xl border border-purple-500/20">
+                <p className="text-sm font-medium leading-relaxed italic text-purple-700 dark:text-purple-300">
+                  "{reviewData.summary}"
+                </p>
+              </div>
+
+              <div>
+                <h3 className="flex items-center gap-2 font-bold text-sm mb-3 text-foreground">
+                  <Lightbulb className="w-4 h-4 text-amber-500" /> Wawasan Pola Kerjamu
+                </h3>
+                <ul className="space-y-2.5">
+                  {reviewData.insights?.map((item: string, i: number) => (
+                    <li key={i} className="text-sm flex items-start gap-2.5 text-muted-foreground font-medium leading-relaxed">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-2 shrink-0" /> {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="flex items-center gap-2 font-bold text-sm mb-3 text-foreground">
+                  <Target className="w-4 h-4 text-cyan-500" /> Fokus Minggu Depan
+                </h3>
+                <ul className="space-y-2.5">
+                  {reviewData.focusNextWeek?.map((item: string, i: number) => (
+                    <li key={i} className="text-sm flex items-start gap-2.5 text-muted-foreground font-medium leading-relaxed">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 mt-2 shrink-0" /> {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {/* Footer Modal */}
+            <div className="pt-4 mt-auto shrink-0 border-t border-border/50">
+              <Button onClick={() => setReviewData(null)} className="w-full rounded-xl h-12 font-bold shadow-md bg-foreground text-background hover:bg-foreground/90">
+                Tutup Laporan
+              </Button>
+            </div>
+            
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -11,6 +11,7 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@hello-pangea/dnd": "^18.0.1",
+    "@tiptap/extension-mention": "^3.20.0",
     "@tiptap/extension-task-item": "^3.20.0",
     "@tiptap/extension-task-list": "^3.20.0",
     "@tiptap/pm": "^3.20.0",
@@ -29,7 +30,9 @@
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-force-graph-2d": "^1.29.1",
     "tailwind-merge": "^3.5.0",
+    "tippy.js": "^6.3.7",
     "zustand": "^5.0.11"
   },
   "devDependencies": {

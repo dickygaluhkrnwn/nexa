@@ -5,7 +5,8 @@ import { MessageCircle, X, Send, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 import { getUserNotes, NoteData } from "@/lib/notes-service";
-import { usePathname } from "next/navigation"; // Tambahan import
+import { usePathname } from "next/navigation"; 
+import { useGemini } from "@/hooks/use-gemini"; // <-- Import Hook AI
 
 interface Message {
   role: "user" | "ai";
@@ -14,18 +15,20 @@ interface Message {
 
 export function ChatWidget() {
   const { user } = useAuth();
-  const pathname = usePathname(); // Inisialisasi pathname
+  const pathname = usePathname(); 
+  const { callAI, isAiLoading } = useGemini(); // <-- Panggil Hook AI (callAI dan isAiLoading)
+  
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     { role: "ai", content: "Halo! Aku Nexa. Ada yang mau ditanyakan soal catatanmu hari ini?" }
   ]);
   const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Scroll otomatis ke bawah jika ada pesan baru atau sedang loading
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isAiLoading]);
 
   // SEMBUNYIKAN WIDGET JIKA:
   // 1. User belum login
@@ -55,32 +58,29 @@ export function ChatWidget() {
     const userMessage = input.trim();
     setInput("");
     setMessages(prev => [...prev, { role: "user", content: userMessage }]);
-    setIsLoading(true);
 
     try {
       const notes = await getUserNotes(user.uid);
       const typedNotes = notes as (NoteData & { id: string })[];
       const contextString = typedNotes.map(n => `Judul: ${n.title}\nIsi: ${n.content.replace(/<[^>]+>/g, ' ')}\n---`).join('\n');
 
-      const res = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          action: "chat", 
-          prompt: userMessage,
-          context: contextString
-        })
+      // PERBAIKAN: Gunakan callAI alih-alih fetch manual agar error limit tertangkap
+      const result = await callAI({
+        action: "chat", 
+        prompt: userMessage,
+        context: contextString
       });
 
-      if (!res.ok) throw new Error("Gagal merespons");
-      const data = await res.json();
-
-      setMessages(prev => [...prev, { role: "ai", content: data.result }]);
-    } catch (error) {
+      setMessages(prev => [...prev, { role: "ai", content: result }]);
+    } catch (error: any) {
       console.error(error);
-      setMessages(prev => [...prev, { role: "ai", content: "Aduh, koneksiku ke server putus. Coba tanya lagi ya!" }]);
-    } finally {
-      setIsLoading(false);
+      if (error.message === "QUOTA_EXCEEDED") {
+        // Hapus pesan user terakhir jika gagal karena limit, agar bisa diketik ulang nanti
+        // dan modal peringatan kuota akan otomatis muncul dari useGemini hook
+        setMessages(prev => prev.slice(0, -1));
+      } else {
+        setMessages(prev => [...prev, { role: "ai", content: "Aduh, koneksiku ke server putus. Coba tanya lagi ya!" }]);
+      }
     }
   };
 
@@ -118,7 +118,6 @@ export function ChatWidget() {
                   <Bot className="w-3 h-3 text-primary" />
                 </div>
               )}
-              {/* PERBAIKAN: Gunakan dangerouslySetInnerHTML untuk merender HTML dari formatMessageContent */}
               <div 
                 className={`px-4 py-2 text-sm rounded-2xl max-w-[85%] leading-relaxed ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-tr-sm" : "bg-muted rounded-tl-sm border border-border/50"}`}
                 dangerouslySetInnerHTML={{ __html: msg.role === "ai" ? formatMessageContent(msg.content) : msg.content }}
@@ -126,7 +125,8 @@ export function ChatWidget() {
             </div>
           ))}
           
-          {isLoading && (
+          {/* Menggunakan isAiLoading dari hook */}
+          {isAiLoading && (
             <div className="flex gap-2 justify-start">
               <div className="w-6 h-6 mt-1 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                 <Bot className="w-3 h-3 text-primary" />
@@ -150,7 +150,8 @@ export function ChatWidget() {
             placeholder="Tanya Nexa soal catatanmu..."
             className="flex-1 bg-muted px-4 py-2 text-sm rounded-full outline-none focus:ring-2 focus:ring-primary/50 transition-all placeholder:text-muted-foreground/50"
           />
-          <Button size="icon" className="rounded-full shrink-0 h-10 w-10 shadow-md bg-primary hover:bg-primary/90" onClick={handleSend} disabled={isLoading || !input.trim()}>
+          {/* Disabled menggunakan isAiLoading */}
+          <Button size="icon" className="rounded-full shrink-0 h-10 w-10 shadow-md bg-primary hover:bg-primary/90" onClick={handleSend} disabled={isAiLoading || !input.trim()}>
             <Send className="w-4 h-4 ml-0.5" />
           </Button>
         </div>

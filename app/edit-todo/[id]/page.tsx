@@ -6,12 +6,15 @@ import { useAuth } from "@/lib/auth-context";
 import { getNote, updateNote, deleteNote, SubTask } from "@/lib/notes-service";
 import { Button } from "@/components/ui/button";
 import { 
-  Loader2, Save, ArrowLeft, Calendar, 
-  AlignLeft, Repeat, Clock, Trash2,
-  ListTodo, Plus, X, Circle, CheckCircle2, CalendarPlus
+  Loader2, Save, ArrowLeft, AlignLeft, Trash2, CalendarPlus, Sparkles
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
+import { useGemini } from "@/hooks/use-gemini"; // <-- Import Hook AI
+
+// Import komponen yang sudah direfactor
+import { SubTaskList } from "@/components/todo/sub-task-list";
+import { TaskSettings } from "@/components/todo/task-settings";
 
 export default function EditTodoPage() {
   const { user } = useAuth();
@@ -19,19 +22,18 @@ export default function EditTodoPage() {
   const params = useParams();
   const todoId = params.id as string;
   const { showAlert, showConfirm } = useModal(); 
+  const { callAI } = useGemini(); // <-- Gunakan Hook AI
   
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
   const [recurrence, setRecurrence] = useState("none");
-  
-  // State untuk Sub-Tasks
   const [subTasks, setSubTasks] = useState<SubTask[]>([]);
-  const [newSubTask, setNewSubTask] = useState("");
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAiLoading, setIsAiLoading] = useState(false);
 
   useEffect(() => {
     const fetchTodo = async () => {
@@ -78,28 +80,63 @@ export default function EditTodoPage() {
     );
   }
 
-  // --- HANDLER SUB-TASKS ---
-  const handleAddSubTask = () => {
-    if (!newSubTask.trim()) return;
-    const newTask: SubTask = {
-      id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-      text: newSubTask.trim(),
-      isCompleted: false
-    };
-    setSubTasks([...subTasks, newTask]);
-    setNewSubTask("");
-  };
+  // --- LOGIKA AI PROJECT BREAKDOWN ---
+  const handleProjectBreakdown = async () => {
+    if (!title.trim()) {
+      showAlert("Perhatian", "Tuliskan judul proyeknya dulu ya agar AI mengerti apa yang akan dipecah!");
+      return;
+    }
 
-  const handleRemoveSubTask = (id: string) => {
-    setSubTasks(subTasks.filter(st => st.id !== id));
-  };
+    setIsAiLoading(true);
+    try {
+      // Mengirimkan konteks hari ini agar AI bisa menghitung estimasi tanggal selesai
+      const today = new Date().toISOString().split('T')[0];
+      const result = await callAI({ 
+        action: "project-breakdown", 
+        content: title,
+        context: `Hari ini adalah tanggal ${today}.`
+      });
+      
+      // Ambil JSON murni dari respons AI menggunakan Regex (berjaga-jaga jika AI pakai format markdown)
+      const jsonMatch = result.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        
+        // 1. Ekstrak Sub-Tasks
+        if (parsed.subTasks && Array.isArray(parsed.subTasks)) {
+          const newSubTasks = parsed.subTasks.map((text: string, index: number) => ({
+            id: Date.now().toString() + index.toString(),
+            text: text,
+            isCompleted: false
+          }));
+          // Menggabungkan sub-task baru ke sub-task yang mungkin sudah ada
+          setSubTasks(prev => [...prev, ...newSubTasks]);
+        }
+        
+        // 2. Ekstrak Deskripsi/Strategi AI ke dalam Textarea
+        if (parsed.description) {
+          setContent(prev => prev ? prev + "\n\n---\n🎯 AI Strategy:\n" + parsed.description : "🎯 AI Strategy:\n" + parsed.description);
+        }
 
-  const handleToggleSubTask = (id: string) => {
-    setSubTasks(subTasks.map(st => 
-      st.id === id ? { ...st, isCompleted: !st.isCompleted } : st
-    ));
+        // 3. Set Due Date jika masih kosong
+        if (parsed.recommendedDueDate && !dueDate) {
+          setDueDate(parsed.recommendedDueDate);
+        }
+        
+        showAlert("Berhasil! ✨", "AI telah menyusun rencana dan memecah proyekmu menjadi langkah-langkah praktis.");
+      } else {
+        throw new Error("Format respons tidak sesuai JSON.");
+      }
+    } catch (error: any) {
+      console.error("Gagal melakukan breakdown:", error);
+      if (error.message !== "QUOTA_EXCEEDED") {
+        showAlert("Gagal", "AI kebingungan mencerna rencanamu. Coba lengkapi atau perjelas judul tugasnya sedikit.");
+      }
+    } finally {
+      setIsAiLoading(false);
+    }
   };
-  // -------------------------
+  // -----------------------------------
 
   // --- FUNGSI GOOGLE CALENDAR SYNC ---
   const handleSyncCalendar = () => {
@@ -111,10 +148,8 @@ export default function EditTodoPage() {
     const baseUrl = "https://calendar.google.com/calendar/render?action=TEMPLATE";
     const eventText = encodeURIComponent(title.trim());
     
-    // Bersihkan tag HTML dari konten untuk masuk ke deskripsi Google Calendar
     let cleanContent = content.replace(/<[^>]+>/g, '\n').trim();
     
-    // Tambahkan daftar sub-tugas ke deskripsi GCal
     if (subTasks.length > 0) {
       cleanContent += "\n\nSub-Tugas:\n" + subTasks.map(st => `- [${st.isCompleted ? 'x' : ' '}] ${st.text}`).join("\n");
     }
@@ -126,17 +161,15 @@ export default function EditTodoPage() {
     if (dueDate) {
       try {
         if (dueTime) {
-          // Jika ada jam, set durasi default 1 jam
           const dateObj = new Date(`${dueDate}T${dueTime}`);
           const startStr = dateObj.toISOString().replace(/-|:|\.\d\d\d/g, "");
           const endDateObj = new Date(dateObj.getTime() + 60 * 60 * 1000); 
           const endStr = endDateObj.toISOString().replace(/-|:|\.\d\d\d/g, "");
           dates = `&dates=${startStr}/${endStr}`;
         } else {
-          // Jika tidak ada jam, set sebagai "All-day event" (Seharian penuh)
           const startStr = dueDate.replace(/-/g, "");
           const dateObj = new Date(dueDate);
-          dateObj.setDate(dateObj.getDate() + 1); // Google Calendar meminta tanggal akhir eksklusif (H+1)
+          dateObj.setDate(dateObj.getDate() + 1); 
           const endStr = dateObj.toISOString().split('T')[0].replace(/-/g, "");
           dates = `&dates=${startStr}/${endStr}`;
         }
@@ -145,13 +178,11 @@ export default function EditTodoPage() {
       }
     }
 
-    // Setel pengulangan (Recurrence Rule / RRULE)
     let rrule = "";
     if (recurrence && recurrence !== "none") {
       rrule = `&recur=RRULE:FREQ=${recurrence.toUpperCase()}`;
     }
 
-    // Buka tab baru menuju Google Calendar Event Creator
     const url = `${baseUrl}&text=${eventText}&details=${eventDetails}${dates}${rrule}`;
     window.open(url, '_blank');
   };
@@ -215,76 +246,34 @@ export default function EditTodoPage() {
       </div>
 
       <div className="px-5 space-y-6 mt-2">
-        {/* Input Judul Utama */}
-        <div>
+        
+        {/* Input Judul Utama & Tombol AI Magic */}
+        <div className="space-y-3">
           <input 
             type="text" 
-            placeholder="Apa yang ingin kamu selesaikan?" 
+            placeholder="Apa proyek atau tugasmu?" 
             value={title} 
             onChange={(e) => setTitle(e.target.value)} 
             className="w-full text-3xl font-extrabold tracking-tight bg-transparent border-none outline-none placeholder:text-muted-foreground/40 focus:ring-0" 
           />
-        </div>
-
-        {/* Area Sub-Tasks (Checklist) */}
-        <div className="space-y-3 pt-2">
-          <div className="flex items-center justify-between text-muted-foreground mb-1">
-            <div className="flex items-center gap-2">
-              <ListTodo className="w-5 h-5" />
-              <h3 className="font-semibold text-sm uppercase tracking-wider">Sub-Tugas</h3>
-            </div>
-            {subTasks.length > 0 && (
-              <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-md">
-                {subTasks.filter(s => s.isCompleted).length} / {subTasks.length} Selesai
-              </span>
-            )}
-          </div>
           
-          <div className="space-y-2">
-            {subTasks.map((st) => (
-              <div key={st.id} className={`flex items-start gap-3 p-3 rounded-2xl group transition-all border ${st.isCompleted ? 'bg-muted/30 border-transparent opacity-60' : 'bg-card border-border shadow-sm'}`}>
-                <button 
-                  onClick={() => handleToggleSubTask(st.id)} 
-                  className={`mt-0.5 shrink-0 transition-colors ${st.isCompleted ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
-                >
-                  {st.isCompleted ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
-                </button>
-                <span className={`flex-1 text-sm font-medium leading-relaxed ${st.isCompleted ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                  {st.text}
-                </span>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="w-7 h-7 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all rounded-full shrink-0" 
-                  onClick={() => handleRemoveSubTask(st.id)}
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-            ))}
-            
-            <div className="flex items-center gap-2 mt-2">
-              <input 
-                type="text" 
-                value={newSubTask} 
-                onChange={(e) => setNewSubTask(e.target.value)} 
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddSubTask();
-                  }
-                }}
-                placeholder="Tambah sub-tugas baru..." 
-                className="flex-1 bg-muted/50 border border-transparent focus:border-primary/30 px-4 py-3 text-sm rounded-2xl outline-none focus:ring-2 focus:ring-primary/50 transition-all placeholder:text-muted-foreground/60"
-              />
-              <Button onClick={handleAddSubTask} disabled={!newSubTask.trim()} className="h-11 w-11 rounded-2xl shrink-0 shadow-sm">
-                <Plus className="w-5 h-5" />
-              </Button>
-            </div>
-          </div>
+          {/* Tombol AI Project Breakdown yang sudah diaktifkan */}
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={handleProjectBreakdown}
+            disabled={!title.trim() || isAiLoading}
+            className="rounded-xl border-primary/30 text-primary bg-primary/5 hover:bg-primary/10 shadow-sm transition-all active:scale-95"
+          >
+            {isAiLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+            {isAiLoading ? "Sedang Merancang..." : "AI Project Breakdown"}
+          </Button>
         </div>
 
-        {/* Input Deskripsi */}
+        {/* Area Sub-Tasks (Komponen Refactored) */}
+        <SubTaskList subTasks={subTasks} onChange={setSubTasks} />
+
+        {/* Input Deskripsi Tambahan */}
         <div className="flex gap-3 pt-2">
           <AlignLeft className="w-5 h-5 text-muted-foreground mt-3 shrink-0" />
           <textarea
@@ -297,46 +286,13 @@ export default function EditTodoPage() {
 
         <div className="h-px w-full bg-border/50 my-2" />
 
-        {/* Pengaturan Tanggal, Waktu & Looping */}
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            {/* Tanggal */}
-            <div className="flex items-center gap-3 p-3 bg-card border border-border rounded-2xl transition-colors hover:border-primary/30 focus-within:border-primary/50">
-              <div className="p-2 bg-orange-500/10 rounded-xl"><Calendar className="w-5 h-5 text-orange-600" /></div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-orange-600 uppercase tracking-wider mb-0.5">Tenggat</p>
-                <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full text-sm bg-transparent border-none outline-none focus:ring-0 text-foreground font-medium p-0" />
-              </div>
-            </div>
-
-            {/* Waktu */}
-            <div className="flex items-center gap-3 p-3 bg-card border border-border rounded-2xl transition-colors hover:border-primary/30 focus-within:border-primary/50">
-              <div className="p-2 bg-blue-500/10 rounded-xl"><Clock className="w-5 h-5 text-blue-600" /></div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-0.5">Waktu</p>
-                <input type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} className="w-full text-sm bg-transparent border-none outline-none focus:ring-0 text-foreground font-medium p-0" />
-              </div>
-            </div>
-          </div>
-
-          {/* Looping */}
-          <div className="flex items-center gap-3 p-3 bg-card border border-border rounded-2xl transition-colors hover:border-primary/30 focus-within:border-primary/50">
-            <div className="p-2 bg-purple-500/10 rounded-xl"><Repeat className="w-5 h-5 text-purple-600" /></div>
-            <div className="flex-1">
-              <p className="text-xs font-semibold text-purple-600 uppercase tracking-wider mb-0.5">Pengulangan Rutin</p>
-              <select 
-                value={recurrence} 
-                onChange={(e) => setRecurrence(e.target.value)}
-                className="w-full text-sm bg-transparent border-none outline-none focus:ring-0 text-foreground font-medium p-0 appearance-none"
-              >
-                <option value="none" className="text-foreground bg-background">Hanya Sekali (Tidak Berulang)</option>
-                <option value="daily" className="text-foreground bg-background">Setiap Hari</option>
-                <option value="weekly" className="text-foreground bg-background">Setiap Minggu</option>
-                <option value="monthly" className="text-foreground bg-background">Setiap Bulan</option>
-              </select>
-            </div>
-          </div>
-        </div>
+        {/* Area Pengaturan Task (Komponen Refactored) */}
+        <TaskSettings 
+          dueDate={dueDate} setDueDate={setDueDate}
+          dueTime={dueTime} setDueTime={setDueTime}
+          recurrence={recurrence} setRecurrence={setRecurrence}
+        />
+        
       </div>
 
       {/* Floating Action Bar */}
