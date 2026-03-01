@@ -4,11 +4,14 @@ import { useState, useEffect, useRef } from "react";
 import { Play, Pause, RotateCcw, Coffee, Brain, Timer, X, Maximize2, Minimize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useModal } from "@/hooks/use-modal";
+import { useAuth } from "@/lib/auth-context"; 
+import { addFocusSession } from "@/lib/notes-service"; 
 
 const WORK_TIME = 25 * 60; // 25 Menit
 const BREAK_TIME = 5 * 60; // 5 Menit
 
 export function PomodoroTimer() {
+  const { user } = useAuth();
   const [timeLeft, setTimeLeft] = useState(WORK_TIME);
   const [isActive, setIsActive] = useState(false);
   const [mode, setMode] = useState<"work" | "break">("work");
@@ -17,9 +20,13 @@ export function PomodoroTimer() {
   const { showAlert } = useModal();
   const wakeLockRef = useRef<any>(null);
 
+  // Menyimpan durasi awal sesi untuk pencatatan
+  const initialTimeRef = useRef(WORK_TIME);
+
   // Fungsi untuk menahan layar agar tidak mati (Wakelock API)
   const requestWakeLock = async () => {
-    if ('wakeLock' in navigator) {
+    // FIX: Hanya request wakelock jika tab sedang aktif/dilihat user
+    if ('wakeLock' in navigator && document.visibilityState === 'visible') {
       try {
         wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
       } catch (err: any) {
@@ -38,6 +45,18 @@ export function PomodoroTimer() {
       }
     }
   };
+
+  // FIX: Menyalakan kembali Wakelock jika user pindah tab lalu kembali ke tab aplikasi
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isActive) {
+        requestWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isActive]);
 
   // Logika Interval Timer
   useEffect(() => {
@@ -58,11 +77,24 @@ export function PomodoroTimer() {
       }
 
       if (mode === "work") {
+        // --- SIMPAN DATA SESI FOKUS KE DATABASE ---
+        if (user && !user.isAnonymous) {
+           const durationInMinutes = Math.floor(initialTimeRef.current / 60);
+           addFocusSession({
+             userId: user.uid,
+             durationMinutes: durationInMinutes,
+             completedAt: new Date().toISOString()
+           }).catch(err => console.error("Gagal menyimpan data fokus", err));
+        }
+        // ------------------------------------------
+
         setMode("break");
+        initialTimeRef.current = BREAK_TIME;
         setTimeLeft(BREAK_TIME);
-        showAlert("Fokus Selesai! 🎉", "Kerja bagus! Sekarang waktunya istirahat 5 menit. Regangkan badanmu dan minum air.");
+        showAlert("Fokus Selesai! 🎉", "Kerja bagus! Sesi fokusmu telah dicatat. Sekarang waktunya istirahat 5 menit. Regangkan badanmu dan minum air.");
       } else {
         setMode("work");
+        initialTimeRef.current = WORK_TIME;
         setTimeLeft(WORK_TIME);
         showAlert("Istirahat Selesai!", "Ayo kembali fokus 25 menit. Kamu pasti bisa menyelesaikan tugas ini!");
       }
@@ -74,7 +106,7 @@ export function PomodoroTimer() {
       if (interval) clearInterval(interval);
       releaseWakeLock();
     };
-  }, [isActive, timeLeft, mode, showAlert]);
+  }, [isActive, timeLeft, mode, showAlert, user]);
 
   const toggleTimer = () => setIsActive(!isActive);
   
@@ -85,7 +117,9 @@ export function PomodoroTimer() {
 
   const switchMode = (newMode: "work" | "break") => {
     setMode(newMode);
-    setTimeLeft(newMode === "work" ? WORK_TIME : BREAK_TIME);
+    const newTime = newMode === "work" ? WORK_TIME : BREAK_TIME;
+    initialTimeRef.current = newTime;
+    setTimeLeft(newTime);
     setIsActive(false);
   };
 

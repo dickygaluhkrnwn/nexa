@@ -17,7 +17,7 @@ export interface SubTask {
   id: string;
   text: string;
   isCompleted: boolean;
-  time?: string; // <-- TAMBAHAN: Untuk waktu spesifik per sub-tugas
+  time?: string; 
 }
 
 export interface NoteData {
@@ -35,9 +35,30 @@ export interface NoteData {
   status?: 'todo' | 'in-progress' | 'done'; 
   mindmapCode?: string | null; 
   userId: string;
+  createdAt?: any;
+  updatedAt?: any;
 }
 
-// Fungsi untuk menyimpan catatan baru
+export interface HabitData {
+  id?: string;
+  userId: string;
+  title: string;
+  icon: string; 
+  color: string; 
+  completedDates: string[]; 
+  createdAt?: any;
+}
+
+// --- TAMBAHAN UNTUK FOCUS ANALYTICS (POMODORO) ---
+export interface FocusSession {
+  id?: string;
+  userId: string;
+  durationMinutes: number; // Durasi fokus dalam menit (biasanya 25)
+  completedAt: string; // Tanggal dan waktu diselesaikan (ISO String)
+}
+// -------------------------------------------------
+
+// ... (Fungsi notes yang sudah ada)
 export const addNote = async (data: NoteData) => {
   try {
     const docRef = await addDoc(collection(db, "notes"), {
@@ -51,7 +72,6 @@ export const addNote = async (data: NoteData) => {
   }
 };
 
-// Fungsi untuk mengambil catatan milik user yang sedang login
 export const getUserNotes = async (userId: string) => {
   try {
     const q = query(
@@ -70,7 +90,6 @@ export const getUserNotes = async (userId: string) => {
   }
 };
 
-// Fungsi untuk menghapus catatan
 export const deleteNote = async (noteId: string) => {
   try {
     await deleteDoc(doc(db, "notes", noteId));
@@ -80,7 +99,6 @@ export const deleteNote = async (noteId: string) => {
   }
 };
 
-// Fungsi untuk mengambil satu catatan berdasarkan ID
 export const getNote = async (noteId: string) => {
   try {
     const docRef = doc(db, "notes", noteId);
@@ -96,7 +114,6 @@ export const getNote = async (noteId: string) => {
   }
 };
 
-// Fungsi untuk memperbarui catatan
 export const updateNote = async (noteId: string, data: Partial<NoteData>) => {
   try {
     const docRef = doc(db, "notes", noteId);
@@ -109,3 +126,90 @@ export const updateNote = async (noteId: string, data: Partial<NoteData>) => {
     throw error;
   }
 };
+
+
+// ... (Fungsi habits yang sudah ada)
+export const addHabit = async (data: HabitData) => {
+  try {
+    const docRef = await addDoc(collection(db, "habits"), {
+      ...data,
+      createdAt: serverTimestamp(),
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error("Error adding habit: ", error);
+    throw error;
+  }
+};
+
+export const getUserHabits = async (userId: string) => {
+  try {
+    const q = query(
+      collection(db, "habits"),
+      where("userId", "==", userId),
+      orderBy("createdAt", "asc") 
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as HabitData[];
+  } catch (error) {
+    console.error("Error getting habits: ", error);
+    throw error;
+  }
+};
+
+export const updateHabit = async (habitId: string, data: Partial<HabitData>) => {
+  try {
+    const docRef = doc(db, "habits", habitId);
+    await updateDoc(docRef, data);
+  } catch (error) {
+    console.error("Error updating habit: ", error);
+    throw error;
+  }
+};
+
+export const deleteHabit = async (habitId: string) => {
+  try {
+    await deleteDoc(doc(db, "habits", habitId));
+  } catch (error) {
+    console.error("Error deleting habit: ", error);
+    throw error;
+  }
+};
+
+// --- FUNGSI CRUD UNTUK FOCUS SESSIONS ---
+export const addFocusSession = async (data: FocusSession) => {
+  try {
+    const docRef = await addDoc(collection(db, "focus_sessions"), {
+      ...data,
+      timestamp: serverTimestamp(), // Untuk sorting di Firestore jika perlu
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error("Error adding focus session: ", error);
+    throw error;
+  }
+};
+
+export const getUserFocusSessions = async (userId: string) => {
+  try {
+    // Kita ambil semua session user, nanti difilter per minggu di client (frontend)
+    const q = query(
+      collection(db, "focus_sessions"),
+      where("userId", "==", userId)
+      // Idealnya kita orderBy("completedAt", "desc"), tapi butuh index composite di Firestore.
+      // Karena data pomodoro tidak terlalu besar, kita ambil semua dan sort di client saja.
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as FocusSession[];
+  } catch (error) {
+    console.error("Error getting focus sessions: ", error);
+    throw error;
+  }
+};
+// ----------------------------------------

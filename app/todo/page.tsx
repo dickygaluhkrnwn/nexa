@@ -13,7 +13,6 @@ import { PomodoroTimer } from "@/components/todo/pomodoro-timer";
 import { DragDropContext, DropResult } from "@hello-pangea/dnd"; 
 import { useGemini } from "@/hooks/use-gemini"; 
 
-// --- Import Komponen Hasil Refactoring ---
 import { TodoItem } from "@/components/todo/types";
 import { TodoListView } from "@/components/todo/todo-list-view";
 import { TodoCalendarView } from "@/components/todo/todo-calendar-view";
@@ -103,7 +102,6 @@ export default function TodoPage() {
     else if (!authLoading) setLoading(false);
   }, [user, authLoading]); 
 
-  // --- LOGIKA AI WEEKLY REVIEW ---
   const handleWeeklyReview = async () => {
     const lastWeek = new Date();
     lastWeek.setDate(lastWeek.getDate() - 7);
@@ -175,9 +173,7 @@ export default function TodoPage() {
       showAlert("Gagal", "Terjadi kesalahan saat menyimpan laporan.");
     }
   };
-  // --------------------------------
 
-  // --- CRUD HANDLERS ---
   const toggleComplete = async (todo: TodoItem) => {
     if (!user) return; 
     const newStatus = !todo.isCompleted;
