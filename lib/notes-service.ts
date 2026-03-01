@@ -17,6 +17,7 @@ export interface SubTask {
   id: string;
   text: string;
   isCompleted: boolean;
+  time?: string; // <-- TAMBAHAN: Untuk waktu spesifik per sub-tugas
 }
 
 export interface NoteData {
@@ -31,8 +32,8 @@ export interface NoteData {
   isPinned?: boolean; 
   isCompleted?: boolean;
   subTasks?: SubTask[]; 
-  status?: 'todo' | 'in-progress' | 'done'; // <-- Tambahan untuk KANBAN BOARD
-  mindmapCode?: string | null; // <-- TAMBAHAN: Menyimpan sintaks Mind Map
+  status?: 'todo' | 'in-progress' | 'done'; 
+  mindmapCode?: string | null; 
   userId: string;
 }
 

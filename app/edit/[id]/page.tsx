@@ -3,20 +3,19 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { getNote, updateNote, deleteNote, getUserNotes } from "@/lib/notes-service"; // <-- Tambahkan getUserNotes
+import { getNote, updateNote, deleteNote, getUserNotes } from "@/lib/notes-service";
 import { TiptapEditor } from "@/components/ui/tiptap-editor";
 import { Button } from "@/components/ui/button";
 import { 
   Loader2, Save, ArrowLeft,
   Tag as TagIcon, Lock, Unlock, 
   Sparkles, X, Download, FileText, File, Printer,
-  Camera, Image as ImageIcon, Mic,
+  Camera, Image as ImageIcon,
   Share2, Trash2 
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
 import { useGemini } from "@/hooks/use-gemini"; 
-// Impor komponen yang baru diekstrak
 import { AiToolbar } from "@/components/notes/ai-toolbar";
 import { ChatOverlay } from "@/components/notes/chat-overlay";
 import { MindMapViewer } from "@/components/notes/mindmap-viewer";
@@ -48,7 +47,10 @@ export default function EditNotePage() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const [isScanning, setIsScanning] = useState(false);
+  
+  // --- STATE SMART VOICE MEMOS ---
   const [isRecording, setIsRecording] = useState(false);
+  const [isAnalyzingVoice, setIsAnalyzingVoice] = useState(false);
 
   // --- STATE AI (Menyederhanakan kontrol UI saja) ---
   const [isSummarizing, setIsSummarizing] = useState(false);
@@ -329,7 +331,7 @@ export default function EditNotePage() {
     }
   };
 
-  // --- FUNGSI HARDWARE (OCR & VOICE) ---
+  // --- FUNGSI HARDWARE (OCR & SMART VOICE MEMOS) ---
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -374,16 +376,18 @@ export default function EditNotePage() {
 
     const recognition = new SpeechRecognition();
     recognition.lang = 'id-ID';
+    recognition.continuous = true; 
     recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+
+    let finalTranscript = "";
 
     recognition.onstart = () => setIsRecording(true);
     
     recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      if (transcript) {
-        setContent((prev) => prev + (prev ? " " : "") + transcript);
-        setEditorKey(prev => prev + 1);
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript + " ";
+        }
       }
     };
 
@@ -393,8 +397,76 @@ export default function EditNotePage() {
       setIsRecording(false);
     };
 
-    recognition.onend = () => setIsRecording(false);
+    recognition.onend = async () => {
+      setIsRecording(false);
+      
+      if (!finalTranscript.trim()) return;
+
+      setIsAnalyzingVoice(true);
+      try {
+        const result = await callAI({
+          action: "analyze-voice-memo",
+          content: finalTranscript.trim()
+        });
+
+        const jsonMatch = result.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          
+          if (!title && parsed.title) setTitle(parsed.title);
+          
+          let aiContentHtml = `
+            <h3>🎙️ Catatan Suara Pintar</h3>
+            <p><em>${parsed.summary}</em></p>
+            ${parsed.formattedText}
+          `;
+
+          if (parsed.actionItems && parsed.actionItems.length > 0) {
+            aiContentHtml += `
+              <br/>
+              <h4>✅ Action Items:</h4>
+              <ul data-type="taskList">
+                ${parsed.actionItems.map((task: string) => `
+                  <li data-type="taskItem" data-checked="false">
+                    <label><input type="checkbox"><span></span></label>
+                    <div><p>${task}</p></div>
+                  </li>
+                `).join('')}
+              </ul>
+            `;
+          }
+
+          setContent((prev) => prev + (prev ? "<br><br>" : "") + aiContentHtml);
+          setEditorKey(prev => prev + 1);
+          showAlert("Berhasil!", "Rekaman suara berhasil dirapikan dan dianalisis oleh AI.");
+        } else {
+          throw new Error("Invalid JSON from AI");
+        }
+
+      } catch (error: any) {
+        console.error("Gagal menganalisis suara:", error);
+        
+        // FALLBACK: Tempel teks mentah jika AI limit
+        setContent((prev) => prev + (prev ? "<br><br>" : "") + `<p>🎙️ <em>Transkripsi Mentah (AI Limit):</em><br/>${finalTranscript.trim()}</p>`);
+        setEditorKey(prev => prev + 1);
+        
+        if (error.message === "QUOTA_EXCEEDED") {
+          showQuotaAlert();
+        } else {
+          showAlert("AI Sibuk", "AI gagal merapikan rekamanmu. Jangan khawatir, teks aslinya tetap kami simpan di editor.");
+        }
+      } finally {
+        setIsAnalyzingVoice(false);
+      }
+    };
+
     recognition.start();
+    
+    const stopRecordingManual = () => {
+      recognition.stop();
+    };
+
+    (window as any).stopNexaRecording = stopRecordingManual;
   };
 
   const handleUpdate = async () => {
@@ -506,17 +578,12 @@ export default function EditNotePage() {
             <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} onChange={handleImageUpload} className="hidden" />
             <input type="file" accept="image/*" ref={galleryInputRef} onChange={handleImageUpload} className="hidden" />
             
-            <Button variant="outline" size="sm" onClick={() => cameraInputRef.current?.click()} disabled={isScanning} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 border-border">
+            <Button variant="outline" size="sm" onClick={() => cameraInputRef.current?.click()} disabled={isScanning || isAnalyzingVoice} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 border-border">
               {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Camera className="w-4 h-4 mr-2" />} Kamera
             </Button>
 
-            <Button variant="outline" size="sm" onClick={() => galleryInputRef.current?.click()} disabled={isScanning} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-indigo-500 hover:bg-indigo-500/10 border-border">
+            <Button variant="outline" size="sm" onClick={() => galleryInputRef.current?.click()} disabled={isScanning || isAnalyzingVoice} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-indigo-500 hover:bg-indigo-500/10 border-border">
               {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ImageIcon className="w-4 h-4 mr-2" />} Galeri
-            </Button>
-
-            <Button variant="outline" size="sm" onClick={handleVoiceRecord} disabled={isRecording} className={`rounded-xl whitespace-nowrap transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse border-red-500' : 'bg-card text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 border-border'}`}>
-              <Mic className={`w-4 h-4 mr-2 ${isRecording ? 'animate-pulse' : ''}`} /> 
-              {isRecording ? "Mendengarkan..." : "Suara"}
             </Button>
           </div>
 
@@ -533,6 +600,10 @@ export default function EditNotePage() {
             isSummarizing={isSummarizing}
             isContentEmpty={plainTextLength === 0}
             isTitleAndContentEmpty={!title.trim() && plainTextLength === 0}
+            onVoiceRecord={handleVoiceRecord}
+            isRecording={isRecording}
+            isAnalyzingVoice={isAnalyzingVoice}
+            onStopRecording={() => (window as any).stopNexaRecording && (window as any).stopNexaRecording()}
           />
 
           {/* Tampilan Hasil Ringkasan AI */}

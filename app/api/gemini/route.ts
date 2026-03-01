@@ -88,35 +88,40 @@ export async function POST(req: Request) {
         generateParams = [finalPrompt];
         break;
 
+      // --- PERBAIKAN FITUR AI PROJECT BREAKDOWN ---
       case "project-breakdown":
         if (!content) return NextResponse.json({ error: "Content is required" }, { status: 400 });
         finalPrompt = `
-          Kamu adalah Manajer Proyek AI profesional tingkat lanjut. Pengguna ingin mengerjakan proyek/tugas dengan judul: "${content}".
+          Kamu adalah Asisten Produktivitas AI yang sangat cerdas. Pengguna memberikan permintaan berupa rencana proyek, rutinitas, atau jadwal harian berikut: 
+          
+          "${content}"
+          
           ${context ? context : ''}
           
-          Tugasmu adalah menganalisis proyek tersebut dan memecahnya menjadi langkah-langkah eksekusi yang praktis dan terstruktur.
+          Tugasmu adalah memecah permintaan tersebut menjadi langkah-langkah atau jadwal yang terstruktur. Jika pengguna meminta jadwal harian/rutinitas (misal: jadwal shalat, jadwal belajar), buatkan sub-tugas berdasarkan waktu yang logis. Jangan berhalusinasi menjadi proyek startup jika pengguna hanya meminta jadwal sederhana.
           
-          Berikan balasan HANYA dalam format JSON. Strukturnya WAJIB persis seperti ini:
+          Berikan balasan HANYA dalam format JSON murni. Strukturnya WAJIB persis seperti ini:
           {
-            "description": "Deskripsi singkat dan tips strategi untuk menyelesaikan proyek ini (maksimal 3 kalimat).",
+            "description": "Deskripsi singkat dan tips strategi untuk menyelesaikan ini (maksimal 3 kalimat).",
             "subTasks": [
-              "Langkah 1: ...",
-              "Langkah 2: ...",
-              "Langkah 3: ..."
+              {
+                "text": "Nama tugas atau aktivitas (contoh: Shalat Subuh / Analisis Pasar)",
+                "time": "HH:MM" 
+              }
             ],
             "recommendedDueDate": "YYYY-MM-DD"
           }
           
-          - 'subTasks' berisi 5 hingga 12 rincian sub-tugas yang spesifik dan langsung bisa dieksekusi.
-          - 'recommendedDueDate' hitung perkiraan waktu penyelesaian logis dari tanggal hari ini dan kembalikan wujud tanggalnya.
+          - 'subTasks' berisi rincian aktivitas. Isi properti "time" dengan jam (contoh "04:30") HANYA jika konteksnya adalah jadwal harian/rutinitas. Jika proyek biasa, biarkan "time" kosong ("").
+          - 'recommendedDueDate' hitung perkiraan waktu penyelesaian logis dari tanggal hari ini. Kosongkan jika ini adalah rutinitas tanpa tenggat akhir.
         `;
         generateParams = [finalPrompt];
         
         // Memaksa model untuk membalas dengan struktur JSON Murni
         generationConfig = { responseMimeType: "application/json" };
         break;
+      // -----------------------------------------
 
-      // --- TAMBAHAN FITUR AI WEEKLY REVIEW ---
       case "weekly-review":
         if (!content) return NextResponse.json({ error: "Content is required" }, { status: 400 });
         finalPrompt = `
@@ -150,7 +155,34 @@ export async function POST(req: Request) {
         generateParams = [finalPrompt];
         generationConfig = { responseMimeType: "application/json" };
         break;
-      // -----------------------------------------
+
+      case "analyze-voice-memo":
+        if (!content) return NextResponse.json({ error: "Content is required" }, { status: 400 });
+        finalPrompt = `
+          Kamu adalah Asisten Notulen cerdas. Pengguna merekam suara mereka (Voice Memo/Transkripsi).
+          Teks hasil transkripsi mungkin agak berantakan, tidak ada tanda baca yang tepat, atau banyak kata-kata *filler* (seperti "eh", "em").
+          
+          Tugasmu:
+          1. Rapikan teks tersebut menjadi paragraf yang koheren dan profesional (buang kata-kata *filler*). Ini adalah bagian "Informasi Utama".
+          2. Ekstrak setiap tindakan atau tugas yang tersirat dalam rekaman tersebut ke dalam daftar terpisah. Ini adalah bagian "Action Items/To-Do".
+          
+          Berikan balasan HANYA dalam format JSON murni. Strukturnya WAJIB persis seperti ini:
+          {
+            "title": "Judul singkat dan merepresentasikan keseluruhan obrolan (Maksimal 6 kata).",
+            "summary": "Ringkasan super singkat (1-2 kalimat) dari isi rekaman.",
+            "formattedText": "Teks hasil rekaman yang sudah dirapikan ejaan dan susunannya (gunakan HTML dasar seperti <p> jika perlu).",
+            "actionItems": [
+              "Tugas 1",
+              "Tugas 2"
+            ]
+          }
+          
+          Transkripsi Suara:
+          "${content}"
+        `;
+        generateParams = [finalPrompt];
+        generationConfig = { responseMimeType: "application/json" };
+        break;
 
       case "chat":
         if (!userPrompt) return NextResponse.json({ error: "Prompt is required for chat" }, { status: 400 });
@@ -196,12 +228,6 @@ export async function POST(req: Request) {
       ...(generationConfig && { generationConfig })
     });
 
-    // ==========================================
-    // SISTEM RETRY: EXPONENTIAL BACKOFF (DIPERCEPAT)
-    // ==========================================
-    // Mengurangi waktu tunggu agar cepat gagal jika terkena limit.
-    // Total antrean hanya 7 detik (1s + 2s + 4s). 
-    // Jika gagal, user akan langsung mendapat alert untuk berdonasi.
     const delays = [1000, 2000, 4000]; 
     let result;
     let lastError;
@@ -209,14 +235,12 @@ export async function POST(req: Request) {
     for (let i = 0; i <= delays.length; i++) {
       try {
         result = await model.generateContent(generateParams);
-        break; // Jika berhasil, keluar dari loop
+        break; 
       } catch (error: any) {
         lastError = error;
-        // Jika sudah mencapai batas percobaan terakhir, lemparkan error
         if (i === delays.length) {
           throw lastError;
         }
-        // Tunggu (delay) sebelum mencoba kembali tanpa memberi tahu user
         await new Promise(resolve => setTimeout(resolve, delays[i]));
       }
     }
@@ -230,7 +254,6 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     console.error("Error generating AI content:", error);
-    // Mengoper kode 429 secara spesifik agar bisa ditangkap oleh hooks use-gemini
     const isQuotaError = error?.message?.toLowerCase().includes("quota") || error?.status === 429;
     
     return NextResponse.json(

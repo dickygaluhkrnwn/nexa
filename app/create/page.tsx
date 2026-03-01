@@ -3,14 +3,14 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { addNote, getUserNotes } from "@/lib/notes-service"; // <-- Tambahkan getUserNotes
+import { addNote, getUserNotes } from "@/lib/notes-service";
 import { TiptapEditor } from "@/components/ui/tiptap-editor";
 import { Button } from "@/components/ui/button";
 import { 
   Loader2, Save, ArrowLeft,
   Tag as TagIcon, Lock, Unlock, 
   Sparkles, X, Download, FileText, File, Printer,
-  Camera, Image as ImageIcon, Mic
+  Camera, Image as ImageIcon
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
@@ -42,7 +42,11 @@ export default function CreateNotePage() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const [isScanning, setIsScanning] = useState(false);
+  
+  // --- STATE SMART VOICE MEMOS ---
   const [isRecording, setIsRecording] = useState(false);
+  const [isAnalyzingVoice, setIsAnalyzingVoice] = useState(false);
+  // -------------------------------
 
   // --- STATE AI (Menyederhanakan kontrol UI saja) ---
   const [isSummarizing, setIsSummarizing] = useState(false);
@@ -54,14 +58,11 @@ export default function CreateNotePage() {
   const [isGeneratingMindMap, setIsGeneratingMindMap] = useState(false);
   const [mindMapCode, setMindMapCode] = useState<string | null>(null);
 
-  // --- STATE UNTUK BI-DIRECTIONAL LINKING ---
   const [availableNotes, setAvailableNotes] = useState<{ id: string; title: string }[]>([]);
 
-  // Fetch daftar catatan untuk fitur "Link to Note"
   useEffect(() => {
     if (user) {
       getUserNotes(user.uid).then(notes => {
-        // Ambil ID dan Judul saja untuk efisiensi
         const formattedNotes = notes.map((n: any) => ({
           id: n.id,
           title: n.title || "Tanpa Judul"
@@ -95,7 +96,6 @@ export default function CreateNotePage() {
     setTags(tags.filter(t => t !== tagToRemove));
   };
 
-  // --- FUNGSI EXPORT ---
   const handleExportTXT = () => {
     const plainText = content.replace(/<[^>]+>/g, '\n').replace(/\n\s*\n/g, '\n\n').trim();
     const textToExport = `JUDUL: ${title || 'Tanpa Judul'}\n\n${plainText}`;
@@ -168,7 +168,6 @@ export default function CreateNotePage() {
     }, 250);
   };
 
-  // --- LOGIKA AI SUPERPOWERS ---
   const handleAutoFormat = async () => {
     setIsFormatting(true);
     try {
@@ -236,7 +235,6 @@ export default function CreateNotePage() {
     }
   };
 
-  // --- FUNGSI HARDWARE (OCR & VOICE) ---
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -272,6 +270,7 @@ export default function CreateNotePage() {
     }
   };
 
+  // --- LOGIKA SMART VOICE MEMO ---
   const handleVoiceRecord = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -281,16 +280,19 @@ export default function CreateNotePage() {
 
     const recognition = new SpeechRecognition();
     recognition.lang = 'id-ID'; 
+    // Set true jika ingin merekam panjang (continuous)
+    recognition.continuous = true; 
     recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+
+    let finalTranscript = "";
 
     recognition.onstart = () => setIsRecording(true);
     
     recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      if (transcript) {
-        setContent((prev) => prev + (prev ? " " : "") + transcript);
-        setEditorKey(prev => prev + 1); 
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript + " ";
+        }
       }
     };
 
@@ -300,9 +302,86 @@ export default function CreateNotePage() {
       setIsRecording(false);
     };
 
-    recognition.onend = () => setIsRecording(false);
+    // Saat user berhenti ngomong atau mematikan secara manual
+    recognition.onend = async () => {
+      setIsRecording(false);
+      
+      if (!finalTranscript.trim()) return;
+
+      // Mulai Analisis AI
+      setIsAnalyzingVoice(true);
+      try {
+        const result = await callAI({
+          action: "analyze-voice-memo",
+          content: finalTranscript.trim()
+        });
+
+        const jsonMatch = result.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          
+          // Set Judul otomatis jika masih kosong
+          if (!title && parsed.title) setTitle(parsed.title);
+          
+          // Susun HTML untuk Tiptap
+          let aiContentHtml = `
+            <h3>🎙️ Catatan Suara Pintar</h3>
+            <p><em>${parsed.summary}</em></p>
+            ${parsed.formattedText}
+          `;
+
+          // Jika ada Action Items, ubah menjadi checklist Tiptap
+          if (parsed.actionItems && parsed.actionItems.length > 0) {
+            aiContentHtml += `
+              <br/>
+              <h4>✅ Action Items:</h4>
+              <ul data-type="taskList">
+                ${parsed.actionItems.map((task: string) => `
+                  <li data-type="taskItem" data-checked="false">
+                    <label><input type="checkbox"><span></span></label>
+                    <div><p>${task}</p></div>
+                  </li>
+                `).join('')}
+              </ul>
+            `;
+          }
+
+          setContent((prev) => prev + (prev ? "<br><br>" : "") + aiContentHtml);
+          setEditorKey(prev => prev + 1);
+          showAlert("Berhasil!", "Rekaman suara berhasil dirapikan dan dianalisis oleh AI.");
+        } else {
+          throw new Error("Invalid JSON from AI");
+        }
+
+      } catch (error: any) {
+        console.error("Gagal menganalisis suara:", error);
+        
+        // FALLBACK: JIKA AI LIMIT ATAU GAGAL, TETAP MASUKKAN TEKS MENTAHNYA
+        setContent((prev) => prev + (prev ? "<br><br>" : "") + `<p>🎙️ <em>Transkripsi Mentah (AI Limit):</em><br/>${finalTranscript.trim()}</p>`);
+        setEditorKey(prev => prev + 1);
+        
+        if (error.message === "QUOTA_EXCEEDED") {
+          showQuotaAlert();
+        } else {
+          showAlert("AI Sibuk", "AI gagal merapikan rekamanmu. Jangan khawatir, teks aslinya tetap kami simpan di editor.");
+        }
+      } finally {
+        setIsAnalyzingVoice(false);
+      }
+    };
+
+    // Auto-stop setelah 60 detik (sebagai pengaman awal) atau biarkan user klik lagi untuk stop
     recognition.start();
+    
+    // Beri tahu user cara mematikan
+    const stopRecordingManual = () => {
+      recognition.stop();
+    };
+
+    // Simpan fungsi stop ke dalam object window agar bisa dipanggil tombol UI
+    (window as any).stopNexaRecording = stopRecordingManual;
   };
+  // ------------------------------------
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -316,7 +395,7 @@ export default function CreateNotePage() {
         else if (mode === 'voice') handleVoiceRecord();
       }, 500);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); 
 
   const handleSave = async () => {
     const plainText = content.replace(/<[^>]+>/g, ' ').trim();
@@ -405,21 +484,17 @@ export default function CreateNotePage() {
             <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} onChange={handleImageUpload} className="hidden" />
             <input type="file" accept="image/*" ref={galleryInputRef} onChange={handleImageUpload} className="hidden" />
             
-            <Button variant="outline" size="sm" onClick={() => cameraInputRef.current?.click()} disabled={isScanning} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 border-border">
+            <Button variant="outline" size="sm" onClick={() => cameraInputRef.current?.click()} disabled={isScanning || isAnalyzingVoice} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 border-border">
               {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Camera className="w-4 h-4 mr-2" />} Kamera
             </Button>
 
-            <Button variant="outline" size="sm" onClick={() => galleryInputRef.current?.click()} disabled={isScanning} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-indigo-500 hover:bg-indigo-500/10 border-border">
+            <Button variant="outline" size="sm" onClick={() => galleryInputRef.current?.click()} disabled={isScanning || isAnalyzingVoice} className="rounded-xl whitespace-nowrap bg-card text-muted-foreground hover:text-indigo-500 hover:bg-indigo-500/10 border-border">
               {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ImageIcon className="w-4 h-4 mr-2" />} Galeri
-            </Button>
-
-            <Button variant="outline" size="sm" onClick={handleVoiceRecord} disabled={isRecording} className={`rounded-xl whitespace-nowrap transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse border-red-500' : 'bg-card text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 border-border'}`}>
-              <Mic className={`w-4 h-4 mr-2 ${isRecording ? 'animate-pulse' : ''}`} /> 
-              {isRecording ? "Mendengarkan..." : "Suara"}
             </Button>
           </div>
 
-          {/* --- TOOLBAR 2: Asisten AI (Extracted Component) --- */}
+          {/* --- TOOLBAR 2: Asisten AI --- */}
+          {/* PERBAIKAN: Melemparkan props Voice ke AiToolbar */}
           <AiToolbar 
             onOpenChat={() => setIsChatOpen(true)}
             onGenerateMindMap={handleGenerateMindMap}
@@ -432,6 +507,12 @@ export default function CreateNotePage() {
             isSummarizing={isSummarizing}
             isContentEmpty={plainTextLength === 0}
             isTitleAndContentEmpty={!title.trim() && plainTextLength === 0}
+            
+            // Props Voice
+            onVoiceRecord={handleVoiceRecord}
+            isRecording={isRecording}
+            isAnalyzingVoice={isAnalyzingVoice}
+            onStopRecording={() => (window as any).stopNexaRecording && (window as any).stopNexaRecording()}
           />
 
           {/* Tampilan Hasil Ringkasan AI */}
@@ -449,12 +530,11 @@ export default function CreateNotePage() {
 
           {/* Editor Teks */}
           <div className="pt-2 print:text-black">
-            {/* --- OPER PROPS AVAILABLE NOTES KE EDITOR --- */}
             <TiptapEditor 
               key={editorKey} 
               content={content} 
               onChange={setContent} 
-              availableNotes={availableNotes} // <-- Tambahan props baru
+              availableNotes={availableNotes} 
             />
           </div>
         </div>
@@ -486,7 +566,6 @@ export default function CreateNotePage() {
         </div>
       </div>
 
-      {/* Ekstrak Komponen Overlay */}
       {mindMapCode && (
         <MindMapViewer code={mindMapCode} onClose={() => setMindMapCode(null)} />
       )}

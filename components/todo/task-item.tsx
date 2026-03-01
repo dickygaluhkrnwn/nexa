@@ -1,10 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { 
   Calendar, Circle, ArrowRight, Trash2, 
-  Pin, Repeat, ListTodo 
+  Pin, Repeat, MoreVertical, Check 
 } from "lucide-react";
 import { NoteData } from "@/lib/notes-service";
 
@@ -32,13 +33,13 @@ export function TaskItem({
   isPinned = false
 }: TaskItemProps) {
   
-  // Hitung progress sub-task jika ada
-  const totalSubTasks = todo.subTasks?.length || 0;
-  const completedSubTasks = todo.subTasks?.filter(st => st.isCompleted).length || 0;
-  const hasSubTasks = totalSubTasks > 0;
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // Cek ketersediaan sub-tasks
+  const hasSubTasks = todo.subTasks && todo.subTasks.length > 0;
 
   return (
-    <div className={`flex items-start gap-3 p-4 bg-card border rounded-2xl shadow-sm transition-all hover:shadow-md group ${isPinned ? 'border-primary/40' : (isOverdue ? 'border-destructive/50 bg-destructive/5' : 'border-border')}`}>
+    <div className={`flex items-start gap-3 p-4 bg-card border rounded-2xl shadow-sm transition-all hover:shadow-md group relative ${isPinned ? 'border-primary/40' : (isOverdue ? 'border-destructive/50 bg-destructive/5' : 'border-border')}`}>
       <button onClick={onToggle} className="mt-0.5 text-muted-foreground hover:text-primary transition-colors shrink-0">
         <Circle className="w-5 h-5" />
       </button>
@@ -56,14 +57,6 @@ export function TaskItem({
                 <span>{todo.dueDate} {todo.dueTime ? `• ${todo.dueTime}` : ''}</span>
               </div>
             )}
-            
-            {/* Indikator Sub-Tasks */}
-            {hasSubTasks && (
-              <div className="flex items-center gap-1.5 text-xs font-medium text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-md">
-                <ListTodo className="w-3.5 h-3.5" />
-                <span>{completedSubTasks}/{totalSubTasks} Sub-tugas</span>
-              </div>
-            )}
 
             {/* Indikator Tugas Berulang */}
             {todo.recurrence && todo.recurrence !== 'none' && (
@@ -76,28 +69,70 @@ export function TaskItem({
               </div>
             )}
           </div>
+
+          {/* RENDER EKSPLISIT SUB-TASKS (JADWAL HARIAN) */}
+          {hasSubTasks && (
+            <div className="mt-3 pt-3 border-t border-border/50 space-y-2.5">
+              {todo.subTasks!.map(st => (
+                <div key={st.id} className={`flex items-start gap-2.5 text-sm ${st.isCompleted ? 'opacity-50' : 'opacity-100'}`}>
+                  <div className={`mt-0.5 w-3.5 h-3.5 rounded-sm flex items-center justify-center border shrink-0 ${st.isCompleted ? 'bg-primary border-primary text-white' : 'border-muted-foreground'}`}>
+                     {st.isCompleted && <Check className="w-2.5 h-2.5" />}
+                  </div>
+                  <span className={`flex-1 leading-tight ${st.isCompleted ? 'line-through text-muted-foreground' : 'text-foreground font-medium'}`}>
+                    {st.text}
+                  </span>
+                  {st.time && (
+                    <span className="text-[10px] font-bold text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded shrink-0">
+                      {st.time}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </Link>
       </div>
       
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-        {onTogglePin && (
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className={`w-9 h-9 rounded-xl ${isPinned ? 'text-primary bg-primary/10 opacity-100' : 'text-muted-foreground hover:text-primary hover:bg-muted'}`} 
-            onClick={onTogglePin}
-          >
-            <Pin className={`w-4 h-4 ${isPinned ? 'fill-primary' : ''}`} />
-          </Button>
-        )}
-        <Link href={`/edit-todo/${todo.id}`}>
-          <Button variant="ghost" size="icon" className="w-9 h-9 rounded-xl text-muted-foreground hover:text-primary hover:bg-muted">
-            <ArrowRight className="w-4 h-4" />
-          </Button>
-        </Link>
-        <Button variant="ghost" size="icon" className="w-9 h-9 rounded-xl text-destructive hover:bg-destructive/10" onClick={onDelete}>
-          <Trash2 className="w-4 h-4" />
+      {/* Menu Titik Tiga (Kebab Menu) */}
+      <div className="relative shrink-0">
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className={`w-8 h-8 rounded-full ${isPinned || isMenuOpen ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
+          onClick={(e) => { 
+            e.preventDefault(); 
+            e.stopPropagation(); 
+            setIsMenuOpen(!isMenuOpen); 
+          }}
+        >
+          <MoreVertical className="w-5 h-5" />
         </Button>
+
+        {isMenuOpen && (
+          <>
+            <div className="fixed inset-0 z-40 cursor-default" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsMenuOpen(false); }}></div>
+            <div className="absolute right-0 top-full mt-1 w-44 bg-card border border-border shadow-xl rounded-2xl z-50 overflow-hidden animate-in zoom-in-95 duration-200">
+              {onTogglePin && (
+                <button 
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onTogglePin(e); setIsMenuOpen(false); }} 
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-muted text-foreground font-medium transition-colors border-b border-border/50"
+                >
+                  <Pin className={`w-4 h-4 ${isPinned ? 'fill-primary text-primary' : ''}`} /> 
+                  {isPinned ? 'Lepas Sematan' : 'Sematkan'}
+                </button>
+              )}
+              <Link href={`/edit-todo/${todo.id}`} className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-muted text-foreground font-medium transition-colors border-b border-border/50">
+                <ArrowRight className="w-4 h-4" /> Buka Detail
+              </Link>
+              <button 
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(e); setIsMenuOpen(false); }} 
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-destructive/10 text-destructive font-medium transition-colors"
+              >
+                <Trash2 className="w-4 h-4" /> Hapus
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

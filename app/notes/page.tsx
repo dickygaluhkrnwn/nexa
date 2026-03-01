@@ -154,8 +154,8 @@ export default function NotesPage() {
     );
   }
 
-  // 1. Ekstrak Semua Tag Unik untuk Ruang Saat Ini
-  const availableNotes = notes.filter(n => isVaultOpen ? n.isHidden : !n.isHidden);
+  // 1. Ekstrak Semua Tag Unik untuk Ruang Saat Ini (PERBAIKAN: Filter out isTodo)
+  const availableNotes = notes.filter(n => !n.isTodo && (isVaultOpen ? n.isHidden : !n.isHidden));
   const allTags = Array.from(new Set(availableNotes.flatMap(n => n.tags || [])));
 
   // 2. Logika Pemrosesan (Filter -> Search -> Sort)

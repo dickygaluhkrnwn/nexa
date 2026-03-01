@@ -73,7 +73,7 @@ export default function CreateTodoPage() {
   // --- LOGIKA AI PROJECT BREAKDOWN ---
   const handleProjectBreakdown = async () => {
     if (!title.trim()) {
-      showAlert("Perhatian", "Tuliskan judul proyeknya dulu ya agar AI mengerti apa yang akan dipecah!");
+      showAlert("Perhatian", "Tuliskan judul proyek atau jadwalnya dulu ya agar AI mengerti!");
       return;
     }
 
@@ -91,11 +91,17 @@ export default function CreateTodoPage() {
         const parsed = JSON.parse(jsonMatch[0]);
         
         if (parsed.subTasks && Array.isArray(parsed.subTasks)) {
-          const newSubTasks = parsed.subTasks.map((text: string, index: number) => ({
-            id: Date.now().toString() + index.toString(),
-            text: text,
-            isCompleted: false
-          }));
+          // Kompatibilitas untuk array of objects (format baru) atau array of string (format lama)
+          const newSubTasks = parsed.subTasks.map((task: any, index: number) => {
+            const textValue = typeof task === 'string' ? task : task.text;
+            const timeValue = typeof task === 'object' && task.time ? task.time : undefined;
+            return {
+              id: Date.now().toString() + index.toString(),
+              text: textValue,
+              time: timeValue,
+              isCompleted: false
+            };
+          });
           setSubTasks(prev => [...prev, ...newSubTasks]);
         }
         
@@ -107,7 +113,7 @@ export default function CreateTodoPage() {
           setDueDate(parsed.recommendedDueDate);
         }
         
-        showAlert("Berhasil! ✨", "AI telah menyusun rencana dan memecah proyekmu menjadi langkah-langkah praktis.");
+        showAlert("Berhasil! ✨", "AI telah memecah tugas dan menyusun jadwalmu.");
       } else {
         throw new Error("Format respons tidak sesuai JSON.");
       }

@@ -9,14 +9,15 @@ import {
   Save, Loader2, Phone, BellRing, 
   Pencil, X, Lock, ShieldCheck, Sparkles, 
   FileText, CheckSquare, LockKeyhole, Mail, User as UserIcon, BrainCircuit,
-  Bell, Smartphone, UserCircle, Palette, LogOut, Sun, Moon, Laptop, Type
+  Bell, Smartphone, UserCircle, Palette, LogOut, Sun, Moon, Laptop, Type, Archive
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useModal } from "@/hooks/use-modal"; 
 import { useTheme } from "next-themes"; 
 import { useSettings } from "@/hooks/use-settings"; 
+import Link from "next/link";
 
-type TabMode = 'account' | 'security' | 'appearance' | 'notifications';
+type TabMode = 'account' | 'archive' | 'appearance' | 'security' | 'notifications';
 
 export default function ProfilePage() {
   const { user, loading: authLoading, loginWithGoogle, loginWithEmail, registerWithEmail, logout } = useAuth();
@@ -39,6 +40,7 @@ export default function ProfilePage() {
   const [isEditingWA, setIsEditingWA] = useState(false);
   const [isEditingPin, setIsEditingPin] = useState(false);
   const [stats, setStats] = useState({ notes: 0, todos: 0, vault: 0 });
+  const [archivedReviews, setArchivedReviews] = useState<any[]>([]); // State khusus Arsip
 
   // --- States untuk Mode Form (Pengguna Tamu) ---
   const [isRegisterMode, setIsRegisterMode] = useState(true); 
@@ -67,8 +69,13 @@ export default function ProfilePage() {
         if (profile?.pinCode) setPinCode(profile.pinCode);
         if (profile?.vibrationEnabled !== undefined) setVibrationEnabled(profile.vibrationEnabled);
 
+        // Filter Arsip Weekly Review
+        const archives = notesData.filter((n: any) => n.tags?.includes("WeeklyReview"));
+        setArchivedReviews(archives);
+
+        // Filter Statistik (Kecualikan Arsip dari hitungan Notes biasa)
         setStats({
-          notes: notesData.filter((n: any) => !n.isTodo && !n.isHidden).length,
+          notes: notesData.filter((n: any) => !n.isTodo && !n.isHidden && !n.tags?.includes("WeeklyReview")).length,
           todos: notesData.filter((n: any) => n.isTodo && !n.isCompleted).length,
           vault: notesData.filter((n: any) => n.isHidden).length,
         });
@@ -329,13 +336,19 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* 2. Sistem Tabs Navigasi */}
-      <div className="flex p-1 bg-muted rounded-xl w-full overflow-x-auto hide-scrollbar snap-x">
+      {/* 2. Sistem Tabs Navigasi (Horizontal Scrollable) */}
+      <div className="flex p-1 bg-muted rounded-xl w-full overflow-x-auto scrollbar-hide snap-x">
         <button 
           onClick={() => setActiveTab('account')} 
           className={`snap-start flex-1 min-w-[100px] flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'account' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
         >
           <UserCircle className="w-4 h-4" /> Akun
+        </button>
+        <button 
+          onClick={() => setActiveTab('archive')} 
+          className={`snap-start flex-1 min-w-[100px] flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'archive' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+        >
+          <Archive className="w-4 h-4" /> Arsip
         </button>
         <button 
           onClick={() => setActiveTab('appearance')} 
@@ -392,6 +405,43 @@ export default function ProfilePage() {
                 <LogOut className="w-4 h-4 mr-2" /> Keluar dari Akun Nexa
               </Button>
             </div>
+          </div>
+        )}
+
+        {/* --- TAB: ARSIP LAPORAN MINGGUAN --- */}
+        {activeTab === 'archive' && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 ml-1 flex items-center gap-2">
+              <Archive className="w-4 h-4" /> Arsip Laporan Mingguan
+            </h3>
+            
+            {archivedReviews.length === 0 ? (
+              <div className="bg-card border border-dashed border-border/60 rounded-[2rem] p-8 text-center shadow-sm">
+                <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Archive className="w-8 h-8 text-muted-foreground/50" />
+                </div>
+                <p className="text-sm font-bold text-foreground">Belum ada arsip.</p>
+                <p className="text-xs text-muted-foreground mt-2 max-w-[250px] mx-auto leading-relaxed">
+                  Laporan mingguan dari AI yang kamu simpan dari halaman To-Do akan muncul di sini.
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                {archivedReviews.map(review => (
+                  <Link href={`/edit/${review.id}`} key={review.id} className="bg-card border border-border/60 p-4 rounded-3xl shadow-sm hover:shadow-md hover:border-primary/30 transition-all group flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-primary flex items-center justify-center text-white font-black text-xl shadow-inner shrink-0 group-hover:scale-110 transition-transform">
+                       <Sparkles className="w-6 h-6" />
+                    </div>
+                    <div className="flex-1 min-w-0 pt-0.5">
+                      <h4 className="font-bold text-sm text-foreground truncate group-hover:text-primary transition-colors">
+                        {review.title || "Laporan Mingguan"}
+                      </h4>
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2" dangerouslySetInnerHTML={{__html: review.content.replace(/<[^>]+>/g, ' ')}}></p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

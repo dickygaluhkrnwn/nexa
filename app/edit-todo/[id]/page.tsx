@@ -83,13 +83,12 @@ export default function EditTodoPage() {
   // --- LOGIKA AI PROJECT BREAKDOWN ---
   const handleProjectBreakdown = async () => {
     if (!title.trim()) {
-      showAlert("Perhatian", "Tuliskan judul proyeknya dulu ya agar AI mengerti apa yang akan dipecah!");
+      showAlert("Perhatian", "Tuliskan judul proyek atau jadwalnya dulu ya agar AI mengerti!");
       return;
     }
 
     setIsAiLoading(true);
     try {
-      // Mengirimkan konteks hari ini agar AI bisa menghitung estimasi tanggal selesai
       const today = new Date().toISOString().split('T')[0];
       const result = await callAI({ 
         action: "project-breakdown", 
@@ -97,33 +96,33 @@ export default function EditTodoPage() {
         context: `Hari ini adalah tanggal ${today}.`
       });
       
-      // Ambil JSON murni dari respons AI menggunakan Regex (berjaga-jaga jika AI pakai format markdown)
       const jsonMatch = result.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         
-        // 1. Ekstrak Sub-Tasks
         if (parsed.subTasks && Array.isArray(parsed.subTasks)) {
-          const newSubTasks = parsed.subTasks.map((text: string, index: number) => ({
-            id: Date.now().toString() + index.toString(),
-            text: text,
-            isCompleted: false
-          }));
-          // Menggabungkan sub-task baru ke sub-task yang mungkin sudah ada
+          const newSubTasks = parsed.subTasks.map((task: any, index: number) => {
+            const textValue = typeof task === 'string' ? task : task.text;
+            const timeValue = typeof task === 'object' && task.time ? task.time : undefined;
+            return {
+              id: Date.now().toString() + index.toString(),
+              text: textValue,
+              time: timeValue,
+              isCompleted: false
+            };
+          });
           setSubTasks(prev => [...prev, ...newSubTasks]);
         }
         
-        // 2. Ekstrak Deskripsi/Strategi AI ke dalam Textarea
         if (parsed.description) {
           setContent(prev => prev ? prev + "\n\n---\n🎯 AI Strategy:\n" + parsed.description : "🎯 AI Strategy:\n" + parsed.description);
         }
 
-        // 3. Set Due Date jika masih kosong
         if (parsed.recommendedDueDate && !dueDate) {
           setDueDate(parsed.recommendedDueDate);
         }
         
-        showAlert("Berhasil! ✨", "AI telah menyusun rencana dan memecah proyekmu menjadi langkah-langkah praktis.");
+        showAlert("Berhasil! ✨", "AI telah memecah tugas dan menyusun jadwalmu.");
       } else {
         throw new Error("Format respons tidak sesuai JSON.");
       }
@@ -148,8 +147,10 @@ export default function EditTodoPage() {
     const baseUrl = "https://calendar.google.com/calendar/render?action=TEMPLATE";
     const eventText = encodeURIComponent(title.trim());
     
+    // Bersihkan tag HTML dari konten untuk masuk ke deskripsi Google Calendar
     let cleanContent = content.replace(/<[^>]+>/g, '\n').trim();
     
+    // Tambahkan daftar sub-tugas ke deskripsi GCal
     if (subTasks.length > 0) {
       cleanContent += "\n\nSub-Tugas:\n" + subTasks.map(st => `- [${st.isCompleted ? 'x' : ' '}] ${st.text}`).join("\n");
     }
@@ -161,15 +162,17 @@ export default function EditTodoPage() {
     if (dueDate) {
       try {
         if (dueTime) {
+          // Jika ada jam, set durasi default 1 jam
           const dateObj = new Date(`${dueDate}T${dueTime}`);
           const startStr = dateObj.toISOString().replace(/-|:|\.\d\d\d/g, "");
           const endDateObj = new Date(dateObj.getTime() + 60 * 60 * 1000); 
           const endStr = endDateObj.toISOString().replace(/-|:|\.\d\d\d/g, "");
           dates = `&dates=${startStr}/${endStr}`;
         } else {
+          // Jika tidak ada jam, set sebagai "All-day event" (Seharian penuh)
           const startStr = dueDate.replace(/-/g, "");
           const dateObj = new Date(dueDate);
-          dateObj.setDate(dateObj.getDate() + 1); 
+          dateObj.setDate(dateObj.getDate() + 1); // Google Calendar meminta tanggal akhir eksklusif (H+1)
           const endStr = dateObj.toISOString().split('T')[0].replace(/-/g, "");
           dates = `&dates=${startStr}/${endStr}`;
         }
@@ -178,11 +181,13 @@ export default function EditTodoPage() {
       }
     }
 
+    // Setel pengulangan (Recurrence Rule / RRULE)
     let rrule = "";
     if (recurrence && recurrence !== "none") {
       rrule = `&recur=RRULE:FREQ=${recurrence.toUpperCase()}`;
     }
 
+    // Buka tab baru menuju Google Calendar Event Creator
     const url = `${baseUrl}&text=${eventText}&details=${eventDetails}${dates}${rrule}`;
     window.open(url, '_blank');
   };

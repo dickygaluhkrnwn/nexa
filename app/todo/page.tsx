@@ -2,26 +2,23 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { getUserNotes, updateNote, deleteNote, addNote, NoteData } from "@/lib/notes-service";
+import { getUserNotes, updateNote, deleteNote, addNote } from "@/lib/notes-service";
 import { Button } from "@/components/ui/button";
 import { 
-  Loader2, CheckCircle2, 
-  AlertCircle, Clock, CheckSquare, Pin, Repeat,
-  LayoutList, CalendarDays, KanbanSquare, ChevronLeft, ChevronRight,
-  ListTodo, Sparkles, X, Target, Lightbulb
+  Loader2, CheckSquare, LayoutList, CalendarDays, KanbanSquare, Sparkles 
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
-import { TaskItem } from "@/components/todo/task-item"; 
 import { PomodoroTimer } from "@/components/todo/pomodoro-timer"; 
-import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"; 
-import { useGemini } from "@/hooks/use-gemini"; // <-- Import Hook AI
+import { DragDropContext, DropResult } from "@hello-pangea/dnd"; 
+import { useGemini } from "@/hooks/use-gemini"; 
 
-interface TodoItem extends NoteData {
-  id: string;
-  isCompleted?: boolean;
-  isPinned?: boolean;
-}
+// --- Import Komponen Hasil Refactoring ---
+import { TodoItem } from "@/components/todo/types";
+import { TodoListView } from "@/components/todo/todo-list-view";
+import { TodoCalendarView } from "@/components/todo/todo-calendar-view";
+import { TodoKanbanView } from "@/components/todo/todo-kanban-view";
+import { WeeklyReviewModal } from "@/components/todo/weekly-review-modal";
 
 type ViewMode = 'list' | 'calendar' | 'kanban';
 
@@ -32,18 +29,15 @@ const getLocalIsoDate = (d: Date) => {
 
 export default function TodoPage() {
   const { user, loading: authLoading } = useAuth();
-  const { showAlert, showConfirm, showQuotaAlert } = useModal(); // <-- Tambahkan showQuotaAlert
-  const { callAI, isAiLoading } = useGemini(); // <-- Panggil AI Hook
+  const { showAlert, showConfirm, showQuotaAlert } = useModal(); 
+  const { callAI, isAiLoading } = useGemini(); 
   
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
 
-  // State untuk Calendar View
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-
-  // State untuk AI Weekly Review
   const [reviewData, setReviewData] = useState<any>(null);
 
   const todayStr = useMemo(() => getLocalIsoDate(new Date()), []);
@@ -53,7 +47,6 @@ export default function TodoPage() {
     try {
       const data = await getUserNotes(user.uid);
       let todoData = data.filter((note: any) => note.isTodo) as TodoItem[];
-      
       let hasAutoCompleted = false;
 
       for (const todo of todoData) {
@@ -112,12 +105,10 @@ export default function TodoPage() {
 
   // --- LOGIKA AI WEEKLY REVIEW ---
   const handleWeeklyReview = async () => {
-    // 1. Ambil tanggal 7 hari yang lalu
     const lastWeek = new Date();
     lastWeek.setDate(lastWeek.getDate() - 7);
     const lastWeekStr = getLocalIsoDate(lastWeek);
 
-    // 2. Kumpulkan semua tugas dalam rentang 7 hari terakhir
     const weeklyTasks = todos.filter(t => t.dueDate && t.dueDate >= lastWeekStr && t.dueDate <= todayStr);
 
     if (weeklyTasks.length === 0) {
@@ -125,7 +116,6 @@ export default function TodoPage() {
       return;
     }
 
-    // 3. Ubah menjadi string/teks untuk dibaca AI
     const contextStr = weeklyTasks.map(t => 
       `- [${t.isCompleted ? 'Selesai' : 'Belum/Terlewat'}] ${t.title} (Target: ${t.dueDate})`
     ).join('\n');
@@ -145,7 +135,6 @@ export default function TodoPage() {
       }
     } catch (error: any) {
       console.error("Gagal melakukan review:", error);
-      // Tangkap error limit API dan arahkan ke funding modal
       if (error.message === "QUOTA_EXCEEDED") {
         showQuotaAlert();
       } else {
@@ -153,8 +142,42 @@ export default function TodoPage() {
       }
     }
   };
+
+  const handleSaveReview = async () => {
+    if (!reviewData || !user) return;
+    
+    try {
+      const contentHtml = `
+        <h2>${reviewData.title}</h2>
+        <p>${reviewData.summary}</p>
+        <br/>
+        <h3>💡 Wawasan Pola Kerja</h3>
+        <ul>${reviewData.insights.map((i: string) => `<li>${i}</li>`).join('')}</ul>
+        <br/>
+        <h3>🎯 Fokus Minggu Depan</h3>
+        <ul>${reviewData.focusNextWeek.map((i: string) => `<li>${i}</li>`).join('')}</ul>
+        <br/>
+        <p><strong>Nilai Performa: ${reviewData.grade}</strong></p>
+      `;
+
+      await addNote({
+        title: `Laporan Mingguan: ${new Date().toLocaleDateString('id-ID')}`,
+        content: contentHtml,
+        tags: ["Weekly Review"],
+        isTodo: false,
+        isHidden: false,
+        userId: user.uid,
+      } as any);
+
+      showAlert("Tersimpan!", "Laporan Mingguan berhasil disimpan ke Arsip di halaman Profil.");
+      setReviewData(null);
+    } catch (error) {
+      showAlert("Gagal", "Terjadi kesalahan saat menyimpan laporan.");
+    }
+  };
   // --------------------------------
 
+  // --- CRUD HANDLERS ---
   const toggleComplete = async (todo: TodoItem) => {
     if (!user) return; 
     const newStatus = !todo.isCompleted;
@@ -290,284 +313,11 @@ export default function TodoPage() {
   const pendingTodos = todos.filter(t => !t.isCompleted);
   const progressPercentage = todos.length > 0 ? Math.round((completedTodos.length / todos.length) * 100) : 0;
 
-  const renderListView = () => {
-    const pinnedTodos = pendingTodos.filter(t => t.isPinned); 
-    const unpinnedPending = pendingTodos.filter(t => !t.isPinned);
-    const overdue = unpinnedPending.filter(t => t.dueDate && t.dueDate < todayStr);
-    const dueToday = unpinnedPending.filter(t => t.dueDate === todayStr);
-    const upcomingAndNoDate = unpinnedPending.filter(t => !t.dueDate || t.dueDate > todayStr);
-
-    return (
-      <div className="space-y-8 animate-in fade-in duration-300">
-        
-        {/* DISEMATKAN */}
-        <Droppable droppableId="pinned">
-          {(provided, snapshot) => (
-            <div ref={provided.innerRef} {...provided.droppableProps} className={`space-y-3 transition-all duration-200 ${snapshot.isDraggingOver ? 'bg-primary/5 p-3 -mx-3 rounded-2xl' : ''} ${pinnedTodos.length === 0 && !snapshot.isDraggingOver ? 'hidden' : 'block'}`}>
-              <h2 className="text-sm font-bold text-primary flex items-center gap-2"><Pin className="w-4 h-4 fill-primary" /> Disematkan ({pinnedTodos.length})</h2>
-              {pinnedTodos.length === 0 && <div className="border-2 border-dashed border-primary/30 rounded-2xl p-4 text-center text-xs text-primary font-medium">Tarik tugas untuk disematkan</div>}
-              {pinnedTodos.map((todo, index) => (
-                <Draggable key={todo.id} draggableId={todo.id} index={index}>
-                  {(provided, snapshot) => (
-                    <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className="pointer-events-auto transition-transform" style={{...provided.draggableProps.style, opacity: snapshot.isDragging ? 0.9 : 1, transform: snapshot.isDragging ? `${provided.draggableProps.style?.transform} scale(1.02)` : provided.draggableProps.style?.transform}}>
-                      <TaskItem todo={todo} onToggle={() => toggleComplete(todo)} onDelete={(e) => handleDelete(todo.id, e)} onTogglePin={(e) => handleTogglePin(todo, e)} isPinned={true} />
-                    </div>
-                  )}
-                </Draggable>
-              ))}
-              {provided.placeholder}
-            </div>
-          )}
-        </Droppable>
-
-        {/* TERLEWAT */}
-        {overdue.length > 0 && (
-          <Droppable droppableId="overdue" isDropDisabled={true}>
-            {(provided) => (
-              <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-3">
-                <h2 className="text-sm font-bold text-destructive flex items-center gap-2"><AlertCircle className="w-4 h-4" /> Terlewat ({overdue.length})</h2>
-                {overdue.map((todo, index) => (
-                  <Draggable key={todo.id} draggableId={todo.id} index={index}>
-                    {(provided, snapshot) => (
-                      <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className="pointer-events-auto transition-transform" style={{...provided.draggableProps.style, opacity: snapshot.isDragging ? 0.9 : 1, transform: snapshot.isDragging ? `${provided.draggableProps.style?.transform} scale(1.02)` : provided.draggableProps.style?.transform}}>
-                        <TaskItem todo={todo} onToggle={() => toggleComplete(todo)} onDelete={(e) => handleDelete(todo.id, e)} onTogglePin={(e) => handleTogglePin(todo, e)} isOverdue={true} />
-                      </div>
-                    )}
-                  </Draggable>
-                ))}
-                {provided.placeholder}
-              </div>
-            )}
-          </Droppable>
-        )}
-
-        {/* HARI INI */}
-        <Droppable droppableId="today">
-          {(provided, snapshot) => (
-            <div ref={provided.innerRef} {...provided.droppableProps} className={`space-y-3 transition-all duration-200 ${snapshot.isDraggingOver ? 'bg-orange-500/5 p-3 -mx-3 rounded-2xl' : ''}`}>
-              <h2 className="text-sm font-bold text-orange-500 flex items-center gap-2"><Clock className="w-4 h-4" /> Hari Ini ({dueToday.length})</h2>
-              {dueToday.length === 0 && <div className="border-2 border-dashed border-border/50 rounded-2xl p-4 text-center text-xs text-muted-foreground font-medium">Tarik tugas untuk dikerjakan hari ini</div>}
-              {dueToday.map((todo, index) => (
-                <Draggable key={todo.id} draggableId={todo.id} index={index}>
-                  {(provided, snapshot) => (
-                    <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className="pointer-events-auto transition-transform" style={{...provided.draggableProps.style, opacity: snapshot.isDragging ? 0.9 : 1, transform: snapshot.isDragging ? `${provided.draggableProps.style?.transform} scale(1.02)` : provided.draggableProps.style?.transform}}>
-                      <TaskItem todo={todo} onToggle={() => toggleComplete(todo)} onDelete={(e) => handleDelete(todo.id, e)} onTogglePin={(e) => handleTogglePin(todo, e)} />
-                    </div>
-                  )}
-                </Draggable>
-              ))}
-              {provided.placeholder}
-            </div>
-          )}
-        </Droppable>
-
-        {/* MENDATANG */}
-        <Droppable droppableId="backlog">
-          {(provided, snapshot) => (
-            <div ref={provided.innerRef} {...provided.droppableProps} className={`space-y-3 transition-all duration-200 ${snapshot.isDraggingOver ? 'bg-primary/5 p-3 -mx-3 rounded-2xl' : ''}`}>
-              <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2"><ListTodo className="w-4 h-4" /> Mendatang ({upcomingAndNoDate.length})</h2>
-              {upcomingAndNoDate.length === 0 && <div className="border-2 border-dashed border-border/50 rounded-2xl p-4 text-center text-xs text-muted-foreground font-medium">Tarik tugas ke sini untuk dijadwalkan ulang</div>}
-              {upcomingAndNoDate.map((todo, index) => (
-                <Draggable key={todo.id} draggableId={todo.id} index={index}>
-                  {(provided, snapshot) => (
-                    <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className="pointer-events-auto transition-transform" style={{...provided.draggableProps.style, opacity: snapshot.isDragging ? 0.9 : 1, transform: snapshot.isDragging ? `${provided.draggableProps.style?.transform} scale(1.02)` : provided.draggableProps.style?.transform}}>
-                      <TaskItem todo={todo} onToggle={() => toggleComplete(todo)} onDelete={(e) => handleDelete(todo.id, e)} onTogglePin={(e) => handleTogglePin(todo, e)} />
-                    </div>
-                  )}
-                </Draggable>
-              ))}
-              {provided.placeholder}
-            </div>
-          )}
-        </Droppable>
-
-        {/* SELESAI */}
-        <Droppable droppableId="done">
-          {(provided, snapshot) => (
-            <div ref={provided.innerRef} {...provided.droppableProps} className={`space-y-3 pt-4 border-t border-border transition-all duration-200 ${snapshot.isDraggingOver ? 'bg-green-500/5 p-3 -mx-3 rounded-2xl border-t-transparent' : ''}`}>
-              <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Selesai ({completedTodos.length})</h2>
-              {completedTodos.length === 0 && <div className="border-2 border-dashed border-border/50 rounded-2xl p-4 text-center text-xs text-muted-foreground font-medium">Tarik tugas ke sini untuk diselesaikan</div>}
-              {completedTodos.map((todo, index) => (
-                <Draggable key={todo.id} draggableId={todo.id} index={index}>
-                  {(provided, snapshot) => (
-                    <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className="pointer-events-auto transition-transform" style={{...provided.draggableProps.style, opacity: snapshot.isDragging ? 0.9 : 1, transform: snapshot.isDragging ? `${provided.draggableProps.style?.transform} scale(1.02)` : provided.draggableProps.style?.transform}}>
-                      <div className="flex items-start gap-3 p-4 bg-muted/30 border border-border rounded-2xl opacity-75 hover:opacity-100 transition-all group mb-2">
-                        <button onClick={() => toggleComplete(todo)} className="mt-0.5 text-primary hover:text-primary/80 transition-colors shrink-0"><CheckCircle2 className="w-5 h-5" /></button>
-                        <div className="flex-1 min-w-0">
-                          <Link href={`/edit-todo/${todo.id}`} className="hover:underline">
-                            <h3 className="font-medium text-muted-foreground line-through truncate">{todo.title || "Tanpa Judul"}</h3>
-                            {todo.recurrence && todo.recurrence !== 'none' && (
-                              <div className="flex items-center gap-1 mt-1 text-[10px] font-medium text-purple-500/70"><Repeat className="w-3 h-3" /> Rutinitas Selesai</div>
-                            )}
-                          </Link>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </Draggable>
-              ))}
-              {provided.placeholder}
-            </div>
-          )}
-        </Droppable>
-
-      </div>
-    );
-  };
-
-  const renderCalendarView = () => {
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const firstDayIndex = new Date(year, month, 1).getDay();
-    
-    const days = [];
-    for (let i = 0; i < firstDayIndex; i++) days.push(null);
-    for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
-
-    const selectedDateStr = getLocalIsoDate(selectedDate);
-    const tasksForSelectedDate = todos.filter(t => t.dueDate === selectedDateStr);
-
-    return (
-      <div className="animate-in fade-in duration-300 space-y-6">
-        {/* Header Kalender */}
-        <div className="flex items-center justify-between bg-card p-4 rounded-2xl border border-border shadow-sm">
-          <Button variant="ghost" size="icon" onClick={() => setCurrentMonth(new Date(year, month - 1, 1))}>
-            <ChevronLeft className="w-5 h-5" />
-          </Button>
-          <h2 className="font-bold text-lg">
-            {currentMonth.toLocaleString('id-ID', { month: 'long', year: 'numeric' })}
-          </h2>
-          <Button variant="ghost" size="icon" onClick={() => setCurrentMonth(new Date(year, month + 1, 1))}>
-            <ChevronRight className="w-5 h-5" />
-          </Button>
-        </div>
-
-        {/* Grid Kalender */}
-        <div className="bg-card p-4 rounded-2xl border border-border shadow-sm">
-          <div className="grid grid-cols-7 gap-1 mb-2 text-center text-xs font-bold text-muted-foreground">
-            {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map(d => <div key={d}>{d}</div>)}
-          </div>
-          <div className="grid grid-cols-7 gap-1">
-            {days.map((date, idx) => {
-              if (!date) return <div key={`empty-${idx}`} className="h-12" />;
-              
-              const dateStr = getLocalIsoDate(date);
-              const isSelected = dateStr === selectedDateStr;
-              const isToday = dateStr === todayStr;
-              const dayTasks = todos.filter(t => t.dueDate === dateStr);
-              const pendingCount = dayTasks.filter(t => !t.isCompleted).length;
-
-              return (
-                <button
-                  key={dateStr}
-                  onClick={() => setSelectedDate(date)}
-                  className={`h-12 rounded-xl flex flex-col items-center justify-center relative transition-all ${isSelected ? 'bg-primary text-primary-foreground shadow-md' : isToday ? 'bg-primary/10 text-primary font-bold' : 'hover:bg-muted text-foreground'}`}
-                >
-                  <span>{date.getDate()}</span>
-                  {pendingCount > 0 && (
-                    <div className="flex gap-0.5 mt-1">
-                      {Array.from({ length: Math.min(pendingCount, 3) }).map((_, i) => (
-                        <div key={i} className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-orange-500'}`} />
-                      ))}
-                      {pendingCount > 3 && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-orange-500'}`} />}
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* List Tugas Harian */}
-        <div className="space-y-3">
-          <h3 className="font-bold text-sm text-muted-foreground uppercase tracking-wider">
-            Tugas tgl {selectedDate.getDate()} {selectedDate.toLocaleString('id-ID', { month: 'short' })}
-          </h3>
-          {tasksForSelectedDate.length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground py-8 border border-dashed rounded-2xl">Tidak ada tugas di hari ini.</p>
-          ) : (
-            tasksForSelectedDate.map(todo => (
-              <TaskItem key={todo.id} todo={todo} onToggle={() => toggleComplete(todo)} onDelete={(e) => handleDelete(todo.id, e)} />
-            ))
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const renderKanbanView = () => {
-    const backlog = pendingTodos.filter(t => t.dueDate !== todayStr);
-    const todayTasks = pendingTodos.filter(t => t.dueDate === todayStr);
-
-    const KanbanColumn = ({ title, icon: Icon, tasks, id, color }: any) => (
-      <div className={`flex-1 min-w-[300px] max-w-sm flex flex-col bg-muted/30 rounded-[2rem] border border-border p-4 h-[65vh]`}>
-        <div className="flex items-center justify-between mb-4 px-2">
-          <div className="flex items-center gap-2 font-bold">
-            <Icon className={`w-5 h-5 ${color}`} /> {title}
-          </div>
-          <span className="bg-background px-2.5 py-0.5 rounded-full text-xs font-bold shadow-sm text-foreground">{tasks.length}</span>
-        </div>
-        
-        <Droppable droppableId={id}>
-          {(provided, snapshot) => (
-            <div 
-              ref={provided.innerRef} 
-              {...provided.droppableProps}
-              className={`flex-1 overflow-y-auto space-y-3 pb-2 custom-scrollbar pr-2 transition-colors duration-200 ${snapshot.isDraggingOver ? 'bg-primary/5 rounded-xl' : ''}`}
-            >
-              {tasks.length === 0 && !snapshot.isDraggingOver && (
-                <div className="h-full flex items-center justify-center border-2 border-dashed border-border/50 rounded-2xl text-muted-foreground text-sm font-medium">
-                  Tarik ke sini
-                </div>
-              )}
-              {tasks.map((todo: TodoItem, index: number) => (
-                <Draggable key={todo.id} draggableId={todo.id} index={index}>
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.draggableProps}
-                      {...provided.dragHandleProps}
-                      style={{
-                        ...provided.draggableProps.style,
-                        opacity: snapshot.isDragging ? 0.9 : 1,
-                        transform: snapshot.isDragging ? `${provided.draggableProps.style?.transform} scale(1.02)` : provided.draggableProps.style?.transform,
-                      }}
-                      className="transition-transform"
-                    >
-                      <div className="pointer-events-auto">
-                        <TaskItem todo={todo} onToggle={() => toggleComplete(todo)} onDelete={(e) => handleDelete(todo.id, e)} />
-                      </div>
-                    </div>
-                  )}
-                </Draggable>
-              ))}
-              {provided.placeholder}
-            </div>
-          )}
-        </Droppable>
-      </div>
-    );
-
-    return (
-      <div className="animate-in fade-in duration-300">
-        <p className="text-xs text-muted-foreground mb-4 text-center md:hidden">Geser ke kanan untuk melihat kolom lain 👉</p>
-        <div className="flex gap-4 overflow-x-auto pb-8 snap-x">
-          <div className="snap-center"><KanbanColumn title="Akan Datang" icon={ListTodo} tasks={backlog} id="backlog" color="text-muted-foreground" /></div>
-          <div className="snap-center"><KanbanColumn title="Fokus Hari Ini" icon={Clock} tasks={todayTasks} id="today" color="text-orange-500" /></div>
-          <div className="snap-center"><KanbanColumn title="Selesai" icon={CheckCircle2} tasks={completedTodos} id="done" color="text-green-500" /></div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="p-4 pb-24 space-y-6 max-w-6xl mx-auto">
       
       {/* Header Halaman & Progress */}
       <div className="bg-card border border-border rounded-[2rem] p-5 shadow-sm space-y-4 relative overflow-hidden">
-        {/* Dekorasi Aksen UI */}
         <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-purple-500/10 to-transparent rounded-bl-full pointer-events-none" />
 
         <div className="flex items-start md:items-center justify-between flex-col md:flex-row gap-4 relative z-10">
@@ -580,7 +330,6 @@ export default function TodoPage() {
           </div>
           
           <div className="flex gap-2 w-full md:w-auto">
-            {/* Tombol AI Weekly Review */}
             <Button 
               variant="outline" 
               onClick={handleWeeklyReview}
@@ -623,6 +372,7 @@ export default function TodoPage() {
         )}
       </div>
 
+      {/* Konten Utama (Views) */}
       {todos.length === 0 ? (
         <div className="text-center py-16 px-4 border border-dashed border-border rounded-[2rem] bg-muted/20">
           <p className="text-muted-foreground mb-4">Belum ada tugas yang dibuat.</p>
@@ -633,82 +383,47 @@ export default function TodoPage() {
       ) : (
         <DragDropContext onDragEnd={onDragEnd}>
           <div className="mt-6">
-            {viewMode === 'list' && renderListView()}
-            {viewMode === 'calendar' && renderCalendarView()}
-            {viewMode === 'kanban' && renderKanbanView()}
+            {viewMode === 'list' && (
+              <TodoListView 
+                todos={todos} 
+                todayStr={todayStr} 
+                onToggle={toggleComplete} 
+                onDelete={handleDelete} 
+                onTogglePin={handleTogglePin} 
+              />
+            )}
+            {viewMode === 'calendar' && (
+              <TodoCalendarView 
+                todos={todos} 
+                todayStr={todayStr} 
+                currentMonth={currentMonth} 
+                setCurrentMonth={setCurrentMonth} 
+                selectedDate={selectedDate} 
+                setSelectedDate={setSelectedDate} 
+                onToggle={toggleComplete} 
+                onDelete={handleDelete} 
+              />
+            )}
+            {viewMode === 'kanban' && (
+              <TodoKanbanView 
+                todos={todos} 
+                todayStr={todayStr} 
+                onToggle={toggleComplete} 
+                onDelete={handleDelete} 
+              />
+            )}
           </div>
         </DragDropContext>
       )}
 
-      {/* RENDER FLOATING POMODORO TIMER */}
+      {/* Ekstra UI Bawah */}
       <PomodoroTimer />
       
-      {/* MODAL HASIL AI WEEKLY REVIEW */}
-      {reviewData && (
-        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-card border border-border p-6 md:p-8 rounded-[2rem] shadow-2xl w-full max-w-md animate-in zoom-in-95 relative overflow-hidden flex flex-col max-h-[85vh]">
-            
-            {/* Header Modal */}
-            <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500" />
-            <button onClick={() => setReviewData(null)} className="absolute top-4 right-4 p-2 bg-muted rounded-full hover:bg-muted-foreground/20 transition-colors z-10">
-              <X className="w-4 h-4" />
-            </button>
-
-            <div className="flex items-center gap-4 mb-6 mt-2 shrink-0">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-primary flex items-center justify-center text-white text-3xl font-black shadow-lg shadow-purple-500/20">
-                {reviewData.grade || "A"}
-              </div>
-              <div className="flex-1 pr-6">
-                <h2 className="font-extrabold text-xl leading-tight text-foreground">{reviewData.title}</h2>
-                <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mt-1">Nexa AI Evaluation</p>
-              </div>
-            </div>
-
-            {/* Area Scrollable Konten */}
-            <div className="space-y-6 overflow-y-auto custom-scrollbar pr-2 pb-4">
-              <div className="bg-purple-500/10 p-4 rounded-2xl border border-purple-500/20">
-                <p className="text-sm font-medium leading-relaxed italic text-purple-700 dark:text-purple-300">
-                  "{reviewData.summary}"
-                </p>
-              </div>
-
-              <div>
-                <h3 className="flex items-center gap-2 font-bold text-sm mb-3 text-foreground">
-                  <Lightbulb className="w-4 h-4 text-amber-500" /> Wawasan Pola Kerjamu
-                </h3>
-                <ul className="space-y-2.5">
-                  {reviewData.insights?.map((item: string, i: number) => (
-                    <li key={i} className="text-sm flex items-start gap-2.5 text-muted-foreground font-medium leading-relaxed">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-2 shrink-0" /> {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="flex items-center gap-2 font-bold text-sm mb-3 text-foreground">
-                  <Target className="w-4 h-4 text-cyan-500" /> Fokus Minggu Depan
-                </h3>
-                <ul className="space-y-2.5">
-                  {reviewData.focusNextWeek?.map((item: string, i: number) => (
-                    <li key={i} className="text-sm flex items-start gap-2.5 text-muted-foreground font-medium leading-relaxed">
-                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 mt-2 shrink-0" /> {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-
-            {/* Footer Modal */}
-            <div className="pt-4 mt-auto shrink-0 border-t border-border/50">
-              <Button onClick={() => setReviewData(null)} className="w-full rounded-xl h-12 font-bold shadow-md bg-foreground text-background hover:bg-foreground/90">
-                Tutup Laporan
-              </Button>
-            </div>
-            
-          </div>
-        </div>
-      )}
+      <WeeklyReviewModal 
+        reviewData={reviewData} 
+        onClose={() => setReviewData(null)} 
+        onSave={handleSaveReview} 
+      />
 
     </div>
   );
