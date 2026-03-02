@@ -10,7 +10,7 @@ import {
   Loader2, Save, ArrowLeft,
   Tag as TagIcon, Lock, Unlock, 
   Sparkles, X, Download, FileText, File, Printer,
-  Camera, Image as ImageIcon
+  Camera, Image as ImageIcon, Network
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
@@ -56,7 +56,10 @@ export default function CreateNotePage() {
   
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isGeneratingMindMap, setIsGeneratingMindMap] = useState(false);
-  const [mindMapCode, setMindMapCode] = useState<string | null>(null);
+  
+  // FIX: Ubah menjadi array untuk menampung riwayat Mind Map
+  const [mindMapHistory, setMindMapHistory] = useState<string[]>([]);
+  const [showMindMap, setShowMindMap] = useState(false); 
 
   const [availableNotes, setAvailableNotes] = useState<{ id: string; title: string }[]>([]);
 
@@ -71,15 +74,6 @@ export default function CreateNotePage() {
       }).catch(err => console.error("Gagal memuat catatan untuk linking", err));
     }
   }, [user]);
-
-  if (!user) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh]">
-        <p className="text-muted-foreground">Silakan login terlebih dahulu.</p>
-        <Button variant="link" onClick={() => router.push('/')}>Kembali ke Home</Button>
-      </div>
-    );
-  }
 
   const handleKeyDownTag = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && tagInput.trim() !== '') {
@@ -219,13 +213,16 @@ export default function CreateNotePage() {
   };
 
   const handleGenerateMindMap = async () => {
+    // FIX: Kalau dipencet dari Toolbar AI, dia akan SELALU generate versi baru (tidak di-return)
     setIsGeneratingMindMap(true);
     try {
       const plainText = content.replace(/<[^>]+>/g, ' ').trim();
       const result = await callAI({ action: "mindmap", content: `Judul: ${title}\n\nIsi: ${plainText}` });
       if (result) {
         const cleanCode = result.replace(/```mermaid/g, '').replace(/```/g, '').trim();
-        setMindMapCode(cleanCode);
+        // Tambahkan versi baru ke depan array
+        setMindMapHistory(prev => [cleanCode, ...prev]);
+        setShowMindMap(true); 
       }
     } catch (error: any) {
       if (error.message === "QUOTA_EXCEEDED") showQuotaAlert();
@@ -280,7 +277,6 @@ export default function CreateNotePage() {
 
     const recognition = new SpeechRecognition();
     recognition.lang = 'id-ID'; 
-    // Set true jika ingin merekam panjang (continuous)
     recognition.continuous = true; 
     recognition.interimResults = false;
 
@@ -302,13 +298,11 @@ export default function CreateNotePage() {
       setIsRecording(false);
     };
 
-    // Saat user berhenti ngomong atau mematikan secara manual
     recognition.onend = async () => {
       setIsRecording(false);
       
       if (!finalTranscript.trim()) return;
 
-      // Mulai Analisis AI
       setIsAnalyzingVoice(true);
       try {
         const result = await callAI({
@@ -320,17 +314,14 @@ export default function CreateNotePage() {
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
           
-          // Set Judul otomatis jika masih kosong
           if (!title && parsed.title) setTitle(parsed.title);
           
-          // Susun HTML untuk Tiptap
           let aiContentHtml = `
             <h3>🎙️ Catatan Suara Pintar</h3>
             <p><em>${parsed.summary}</em></p>
             ${parsed.formattedText}
           `;
 
-          // Jika ada Action Items, ubah menjadi checklist Tiptap
           if (parsed.actionItems && parsed.actionItems.length > 0) {
             aiContentHtml += `
               <br/>
@@ -356,7 +347,6 @@ export default function CreateNotePage() {
       } catch (error: any) {
         console.error("Gagal menganalisis suara:", error);
         
-        // FALLBACK: JIKA AI LIMIT ATAU GAGAL, TETAP MASUKKAN TEKS MENTAHNYA
         setContent((prev) => prev + (prev ? "<br><br>" : "") + `<p>🎙️ <em>Transkripsi Mentah (AI Limit):</em><br/>${finalTranscript.trim()}</p>`);
         setEditorKey(prev => prev + 1);
         
@@ -370,15 +360,12 @@ export default function CreateNotePage() {
       }
     };
 
-    // Auto-stop setelah 60 detik (sebagai pengaman awal) atau biarkan user klik lagi untuk stop
     recognition.start();
     
-    // Beri tahu user cara mematikan
     const stopRecordingManual = () => {
       recognition.stop();
     };
 
-    // Simpan fungsi stop ke dalam object window agar bisa dipanggil tombol UI
     (window as any).stopNexaRecording = stopRecordingManual;
   };
   // ------------------------------------
@@ -398,6 +385,8 @@ export default function CreateNotePage() {
   }, []); 
 
   const handleSave = async () => {
+    if (!user) return; 
+    
     const plainText = content.replace(/<[^>]+>/g, ' ').trim();
     if (!title.trim() && !plainText) return; 
     
@@ -421,7 +410,7 @@ export default function CreateNotePage() {
         isTodo: false, 
         dueDate: null, 
         isHidden: isHidden,
-        mindmapCode: mindMapCode,
+        mindmapCode: mindMapHistory, // FIX: Simpan array history
         userId: user.uid,
       } as any);
       
@@ -435,6 +424,15 @@ export default function CreateNotePage() {
 
   const plainTextLength = content.replace(/<[^>]+>/g, '').trim().length;
 
+  if (!user) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh]">
+        <p className="text-muted-foreground">Silakan login terlebih dahulu.</p>
+        <Button variant="link" onClick={() => router.push('/')}>Kembali ke Home</Button>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto relative">
@@ -446,6 +444,15 @@ export default function CreateNotePage() {
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Buat Catatan</span>
+          </div>
+          
+          {/* Tombol Buka Mind Map di Header jika riwayat sudah ada */}
+          <div className="flex items-center gap-1">
+            {mindMapHistory.length > 0 && (
+               <Button variant="ghost" size="icon" onClick={() => setShowMindMap(true)} className="text-rose-500 hover:bg-rose-500/10 rounded-full transition-colors" title="Buka Peta Konsep">
+                 <Network className="w-5 h-5" />
+               </Button>
+            )}
           </div>
         </div>
 
@@ -494,7 +501,6 @@ export default function CreateNotePage() {
           </div>
 
           {/* --- TOOLBAR 2: Asisten AI --- */}
-          {/* PERBAIKAN: Melemparkan props Voice ke AiToolbar */}
           <AiToolbar 
             onOpenChat={() => setIsChatOpen(true)}
             onGenerateMindMap={handleGenerateMindMap}
@@ -507,8 +513,6 @@ export default function CreateNotePage() {
             isSummarizing={isSummarizing}
             isContentEmpty={plainTextLength === 0}
             isTitleAndContentEmpty={!title.trim() && plainTextLength === 0}
-            
-            // Props Voice
             onVoiceRecord={handleVoiceRecord}
             isRecording={isRecording}
             isAnalyzingVoice={isAnalyzingVoice}
@@ -566,8 +570,9 @@ export default function CreateNotePage() {
         </div>
       </div>
 
-      {mindMapCode && (
-        <MindMapViewer code={mindMapCode} onClose={() => setMindMapCode(null)} />
+      {/* FIX: Render MindMapViewer dan lempar prop history */}
+      {showMindMap && mindMapHistory.length > 0 && (
+        <MindMapViewer history={mindMapHistory} onClose={() => setShowMindMap(false)} />
       )}
 
       <ChatOverlay 

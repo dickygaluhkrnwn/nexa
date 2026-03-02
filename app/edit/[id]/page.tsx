@@ -11,7 +11,7 @@ import {
   Tag as TagIcon, Lock, Unlock, 
   Sparkles, X, Download, FileText, File, Printer,
   Camera, Image as ImageIcon,
-  Share2, Trash2 
+  Share2, Trash2, Network 
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
@@ -60,7 +60,9 @@ export default function EditNotePage() {
   
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isGeneratingMindMap, setIsGeneratingMindMap] = useState(false);
-  const [mindMapCode, setMindMapCode] = useState<string | null>(null);
+  // State menjadi array untuk menyimpan riwayat
+  const [mindMapHistory, setMindMapHistory] = useState<string[]>([]);
+  const [showMindMap, setShowMindMap] = useState(false); 
 
   // --- STATE UNTUK BI-DIRECTIONAL LINKING ---
   const [availableNotes, setAvailableNotes] = useState<{ id: string; title: string }[]>([]);
@@ -76,7 +78,17 @@ export default function EditNotePage() {
           setContent(noteData.content);
           setTags(noteData.tags || []);
           setIsHidden((noteData as any).isHidden || false);
-          setMindMapCode((noteData as any).mindmapCode || null);
+          
+          // Migrasi data lama (string) ke array baru jika perlu
+          const existingMindMap = (noteData as any).mindmapCode;
+          if (Array.isArray(existingMindMap)) {
+            setMindMapHistory(existingMindMap);
+          } else if (typeof existingMindMap === 'string') {
+            setMindMapHistory([existingMindMap]);
+          } else {
+            setMindMapHistory([]);
+          }
+
         } else {
           showAlert("Akses Ditolak", "Catatan tidak ditemukan atau kamu tidak memiliki akses.");
           router.push("/");
@@ -321,7 +333,11 @@ export default function EditNotePage() {
       const result = await callAI({ action: "mindmap", content: `Judul: ${title}\n\nIsi: ${plainText}` });
       if (result) {
         const cleanCode = result.replace(/```mermaid/g, '').replace(/```/g, '').trim();
-        setMindMapCode(cleanCode);
+        
+        // Simpan ke riwayat, jadikan yang terbaru di indeks 0
+        setMindMapHistory(prev => [cleanCode, ...prev]);
+        setShowMindMap(true);
+        showAlert("Berhasil", "Mind Map baru telah dibuat berdasarkan teks terbarumu.");
       }
     } catch (error: any) {
       if (error.message === "QUOTA_EXCEEDED") showQuotaAlert();
@@ -493,7 +509,7 @@ export default function EditNotePage() {
         content: content,
         tags: finalTags,
         isHidden: isHidden,
-        mindmapCode: mindMapCode,
+        mindmapCode: mindMapHistory, // Simpan array riwayat
       } as any);
       
       router.push("/notes"); 
@@ -521,6 +537,12 @@ export default function EditNotePage() {
 
           {/* Grup Tombol Aksi Kanan (Share & Hapus) */}
           <div className="flex items-center gap-1">
+            {/* Tampilkan tombol Buka MindMap jika sudah ada riwayat */}
+            {mindMapHistory.length > 0 && (
+               <Button variant="ghost" size="icon" onClick={() => setShowMindMap(true)} className="text-rose-500 hover:bg-rose-500/10 rounded-full transition-colors" title="Buka Peta Konsep">
+                 <Network className="w-5 h-5" />
+               </Button>
+            )}
             <Button variant="ghost" size="icon" onClick={handleShare} className="text-blue-500 hover:bg-blue-500/10 rounded-full transition-colors" title="Bagikan Link Publik">
               <Share2 className="w-5 h-5" />
             </Button>
@@ -658,9 +680,12 @@ export default function EditNotePage() {
         </div>
       </div>
 
-      {/* Ekstrak Komponen Overlay */}
-      {mindMapCode && (
-        <MindMapViewer code={mindMapCode} onClose={() => setMindMapCode(null)} />
+      {/* Render komponen MindMapViewer versi terbaru jika ada histori */}
+      {showMindMap && mindMapHistory.length > 0 && (
+        <MindMapViewer 
+          history={mindMapHistory} 
+          onClose={() => setShowMindMap(false)} 
+        />
       )}
 
       <ChatOverlay 

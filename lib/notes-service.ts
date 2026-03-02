@@ -33,7 +33,8 @@ export interface NoteData {
   isCompleted?: boolean;
   subTasks?: SubTask[]; 
   status?: 'todo' | 'in-progress' | 'done'; 
-  mindmapCode?: string | null; 
+  // FIX: Ubah dari string tunggal menjadi array string
+  mindmapCode?: string[] | null; 
   userId: string;
   createdAt?: any;
   updatedAt?: any;
