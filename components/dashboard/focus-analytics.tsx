@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { format, subDays, startOfWeek, addDays, isSameDay } from "date-fns";
+import { format, subDays, addDays, isSameDay } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import { Brain, Timer, Trophy, Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { getUserFocusSessions, FocusSession } from "@/lib/notes-service";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 export function FocusAnalytics() {
   const { user } = useAuth();
@@ -28,10 +29,10 @@ export function FocusAnalytics() {
     fetchSessions();
   }, [user]);
 
-  // Kalkulasi data untuk 7 hari terakhir (Minggu ini)
+  // Kalkulasi data untuk 7 hari terakhir menggunakan Recharts format
   const chartData = useMemo(() => {
     const today = new Date();
-    // Mulai dari Senin minggu ini, atau 6 hari ke belakang agar selalu ada 7 hari
+    // Mulai dari 6 hari ke belakang agar selalu ada 7 hari sampai hari ini
     const startDate = subDays(today, 6); 
     
     const daysArray = [];
@@ -41,35 +42,31 @@ export function FocusAnalytics() {
       currentDay = addDays(currentDay, 1);
     }
 
-    let maxMinutes = 0;
     let totalMinutesThisWeek = 0;
 
     const data = daysArray.map(date => {
       const dateStr = format(date, 'yyyy-MM-dd');
       
-      // Jumlahkan menit fokus pada tanggal ini
+      // FIX: Gunakan substring YYYY-MM-DD dari completedAt (asumsi format ISO string dari Firestore)
+      // agar tidak terpengaruh perbedaan zona waktu saat konversi Date object lokal vs server
       const minutesOnThisDay = sessions
-        .filter(s => format(new Date(s.completedAt), 'yyyy-MM-dd') === dateStr)
+        .filter(s => s.completedAt.substring(0, 10) === dateStr)
         .reduce((sum, s) => sum + s.durationMinutes, 0);
 
-      if (minutesOnThisDay > maxMinutes) maxMinutes = minutesOnThisDay;
       totalMinutesThisWeek += minutesOnThisDay;
 
       return {
-        date,
         dayName: format(date, 'EE', { locale: localeId }), // Sen, Sel, Rab, dll
         minutes: minutesOnThisDay,
-        isToday: isSameDay(date, today)
+        isToday: isSameDay(date, today),
+        fullDate: dateStr
       };
     });
 
-    // Menghindari pembagian dengan 0 saat chart kosong
-    if (maxMinutes === 0) maxMinutes = 60; // Default max 60 menit kalau kosong
-
-    return { data, maxMinutes, totalMinutesThisWeek };
+    return { data, totalMinutesThisWeek };
   }, [sessions]);
 
-  // Format jam dan menit untuk tampilan
+  // Format jam dan menit untuk tampilan total
   const formatTotalTime = (totalMins: number) => {
     const hours = Math.floor(totalMins / 60);
     const mins = totalMins % 60;
@@ -101,13 +98,25 @@ export function FocusAnalytics() {
     );
   }
 
+  // Komponen Custom Tooltip untuk Recharts
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-foreground text-background text-xs font-bold px-3 py-2 rounded-lg shadow-xl">
+          {`${payload[0].value} Menit`}
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="bg-card border border-border/80 rounded-[2rem] p-5 md:p-6 shadow-sm space-y-6">
       
       {/* Header Analitik */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between mb-2">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-400 to-blue-600 flex items-center justify-center text-white shadow-md">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-400 to-blue-600 flex items-center justify-center text-white shadow-md shrink-0">
             <Brain className="w-5 h-5" />
           </div>
           <div>
@@ -126,39 +135,45 @@ export function FocusAnalytics() {
         </div>
       </div>
 
-      {/* Area Bar Chart (CSS Murni) */}
-      <div className="h-32 flex items-end justify-between gap-1.5 pt-4">
-        {chartData.data.map((day, i) => {
-          // Menghitung tinggi bar dalam persen (dengan minimal tinggi 5% jika ada nilainya agar tetap terlihat)
-          const heightPercent = day.minutes > 0 
-            ? Math.max((day.minutes / chartData.maxMinutes) * 100, 8) 
-            : 0;
-
-          return (
-            <div key={i} className="flex flex-col items-center gap-2 flex-1 group">
-              {/* Tooltip Hover Murni CSS */}
-              <div className="relative flex justify-center w-full h-full items-end">
-                <div className="absolute -top-8 bg-foreground text-background text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
-                  {day.minutes} mnt
-                </div>
-                
-                {/* Bar Kosong (Background) */}
-                <div className="absolute inset-0 bg-muted/50 rounded-lg -z-10" />
-                
-                {/* Bar Isi (Warna) */}
-                <div 
-                  className={`w-full rounded-lg transition-all duration-1000 ease-out origin-bottom ${day.isToday ? 'bg-gradient-to-t from-primary to-purple-500' : 'bg-primary/50'}`}
-                  style={{ height: `${heightPercent}%` }}
-                />
-              </div>
-              
-              {/* Label Hari */}
-              <span className={`text-[10px] font-bold ${day.isToday ? 'text-primary' : 'text-muted-foreground'}`}>
-                {day.dayName}
-              </span>
-            </div>
-          );
-        })}
+      {/* RECHARTS AREA */}
+      <div className="h-40 w-full mt-4">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData.data} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
+            {/* Sembunyikan garis Y, tapi biarkan angkanya untuk referensi tipis */}
+            <YAxis 
+              axisLine={false} 
+              tickLine={false} 
+              tick={{ fontSize: 10, fill: 'currentColor', opacity: 0.5 }}
+              dx={-5}
+            />
+            {/* Garis bawah X */}
+            <XAxis 
+              dataKey="dayName" 
+              axisLine={false} 
+              tickLine={false} 
+              tick={{ fontSize: 10, fontWeight: 'bold' }} 
+              dy={10}
+            />
+            <Tooltip 
+              content={<CustomTooltip />} 
+              cursor={{ fill: 'currentColor', opacity: 0.05 }} // Efek highlight tipis di latar saat hover
+            />
+            <Bar 
+              dataKey="minutes" 
+              radius={[6, 6, 6, 6]} // Rounded corners
+              animationDuration={1500}
+            >
+              {
+                chartData.data.map((entry, index) => (
+                  <Cell 
+                    key={`cell-${index}`} 
+                    fill={entry.isToday ? "hsl(var(--primary))" : "hsl(var(--primary) / 0.4)"} 
+                  />
+                ))
+              }
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       </div>
       
     </div>
