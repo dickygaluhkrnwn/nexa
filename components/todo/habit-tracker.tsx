@@ -170,13 +170,22 @@ export function HabitTracker() {
   };
 
   const handleDeleteHabit = (id: string, title: string) => {
-    setOpenMenuId(null); // Tutup menu sebelum nanya konfirmasi
+    setOpenMenuId(null); // Tutup dropdown menu segera
+    
     showConfirm("Hapus Kebiasaan?", `Yakin ingin menghapus tracker "${title}" beserta seluruh riwayat streak-nya?`, async () => {
+      // Optimistic update: langsung buang dari layar dengan callback param (prev) yang 100% aman
+      setHabits((prev) => prev.filter((h) => h.id !== id));
+      
       try {
         await deleteHabit(id);
-        setHabits(habits.filter(h => h.id !== id));
       } catch (err) {
+        console.error("Gagal menghapus habit:", err);
         showAlert("Gagal", "Terjadi kesalahan saat menghapus data.");
+        // Jika penghapusan database gagal, kita fetch ulang dari server untuk jaga-jaga
+        if (user) {
+          const data = await getUserHabits(user.uid);
+          setHabits(data);
+        }
       }
     });
   };
@@ -260,59 +269,68 @@ export function HabitTracker() {
         </div>
       )}
 
-      {/* Logika dinamis untuk Grid Columns (Lebar penuh jika itemnya cuma 1) */}
-      <div className={`grid gap-3 ${habits.length === 1 ? 'grid-cols-1' : 'grid-cols-2 sm:grid-cols-3'}`}>
-        {habits.map(habit => {
+      {/* Logika dinamis untuk Grid Columns */}
+      <div className={`grid gap-3 grid-cols-2 md:grid-cols-3`}>
+        {habits.map((habit, index) => {
           const isCompletedToday = habit.completedDates.includes(todayStr);
           const currentStreak = calculateStreak(habit.completedDates);
           const isFire = currentStreak >= 3; // Streak menyala (pulsing) jika minimal 3 hari
           const isMenuOpen = openMenuId === habit.id;
           
-          // Variabel ukuran dinamis berdasarkan jumlah habit
-          const isSingle = habits.length === 1;
-          const iconSizeClass = isSingle ? 'w-14 h-14 text-3xl' : 'w-10 h-10 text-2xl';
-          const titleSizeClass = isSingle ? 'text-base' : 'text-[13px]';
+          // Logika Bento Grid: Jika jumlah habit ganjil dan ini adalah elemen terakhir
+          const isLastOddItem = habits.length % 2 !== 0 && index === habits.length - 1;
+          const colSpanClass = isLastOddItem ? 'col-span-2 md:col-span-1' : 'col-span-1';
 
           return (
-            <div key={habit.id} className={`relative flex flex-col p-4 rounded-3xl border transition-all duration-300 overflow-visible ${isCompletedToday ? `${habit.color} border-transparent shadow-md` : 'bg-card border-border hover:border-primary/30'}`}>
+            <div key={habit.id} className={`relative flex flex-col p-4 rounded-3xl border transition-all duration-300 overflow-visible ${colSpanClass} ${isCompletedToday ? `${habit.color} border-transparent shadow-md` : 'bg-card border-border hover:border-primary/30'}`}>
               
               {/* Header Card: Ikon di kiri, Judul di sebelahnya, Menu di kanan atas */}
-              <div className="flex items-start justify-between z-10 relative">
+              {/* FIX UTAMA: z-50 di sini memastikan seluruh header card dan menunya selalu di atas ikon api */}
+              <div className="flex items-start justify-between z-50 relative">
                 <div className={`flex items-center gap-3 flex-1 pr-2`}>
-                  <div className={`${iconSizeClass} shrink-0 rounded-2xl flex items-center justify-center shadow-inner transition-all ${isCompletedToday ? 'bg-white/20' : 'bg-muted'}`}>
+                  <div className={`w-10 h-10 text-2xl shrink-0 rounded-2xl flex items-center justify-center shadow-inner transition-all ${isCompletedToday ? 'bg-white/20' : 'bg-muted'}`}>
                     {habit.icon}
                   </div>
-                  <h3 className={`font-bold ${titleSizeClass} leading-tight line-clamp-2 ${isCompletedToday ? 'text-white' : 'text-foreground'}`}>
+                  <h3 className={`font-bold text-[13px] leading-tight line-clamp-2 ${isCompletedToday ? 'text-white' : 'text-foreground'}`}>
                     {habit.title}
                   </h3>
                 </div>
 
-                {/* Kebab Menu Button (diposisikan agak ke atas kanan) */}
+                {/* Kebab Menu Button */}
                 <div className="relative shrink-0 -mt-1 -mr-2">
                   <button 
                     onClick={(e) => { 
+                      e.preventDefault();
                       e.stopPropagation(); 
                       setOpenMenuId(isMenuOpen ? null : habit.id!); 
                     }}
-                    className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${isCompletedToday ? 'text-white/70 hover:text-white hover:bg-white/20' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+                    className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors relative z-20 ${isCompletedToday ? 'text-white/70 hover:text-white hover:bg-white/20' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
                   >
-                    <MoreVertical className="w-4 h-4" />
+                    <MoreVertical className="w-4 h-4 pointer-events-none" />
                   </button>
 
                   {/* Dropdown Menu */}
                   {isMenuOpen && (
                     <>
-                      <div className="fixed inset-0 z-[60]" onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); }}></div>
+                      <div className="fixed inset-0 z-[60]" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpenMenuId(null); }}></div>
                       <div className="absolute right-0 top-full mt-1 w-32 bg-card border border-border shadow-xl rounded-xl z-[70] overflow-hidden animate-in zoom-in-95 duration-200 origin-top-right">
                         <button 
-                          onClick={(e) => { e.stopPropagation(); handleOpenEditForm(habit); }} 
-                          className="w-full flex items-center gap-2 px-3 py-2.5 text-xs hover:bg-muted text-foreground font-medium transition-colors border-b border-border/50"
+                          onClick={(e) => { 
+                            e.preventDefault();
+                            e.stopPropagation(); 
+                            handleOpenEditForm(habit); 
+                          }} 
+                          className="w-full flex items-center gap-2 px-3 py-2.5 text-xs hover:bg-muted text-foreground font-medium transition-colors border-b border-border/50 relative z-10"
                         >
                           <Pencil className="w-3.5 h-3.5" /> Edit
                         </button>
                         <button 
-                          onClick={(e) => { e.stopPropagation(); handleDeleteHabit(habit.id!, habit.title); }} 
-                          className="w-full flex items-center gap-2 px-3 py-2.5 text-xs hover:bg-destructive/10 text-destructive font-medium transition-colors"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleDeleteHabit(habit.id!, habit.title);
+                          }} 
+                          className="w-full flex items-center gap-2 px-3 py-2.5 text-xs hover:bg-destructive/10 text-destructive font-medium transition-colors relative z-10"
                         >
                           <Trash2 className="w-3.5 h-3.5" /> Hapus
                         </button>
@@ -323,8 +341,9 @@ export function HabitTracker() {
               </div>
 
               {/* Area Tengah: BIG STREAK FLAME */}
-              <div className="flex-1 flex flex-col items-center justify-center my-4 z-10">
-                 <div className={`flex flex-col items-center justify-center transition-all duration-500 ${isCompletedToday ? 'scale-110' : 'scale-100 opacity-60 grayscale'}`}>
+              {/* FIX UTAMA: pointer-events-none memastikan ruang kosong di sekitar api tidak memblokir klik mouse */}
+              <div className="flex-1 flex flex-col items-center justify-center my-4 z-0 pointer-events-none relative">
+                 <div className={`flex flex-col items-center justify-center transition-all duration-500 pointer-events-auto ${isCompletedToday ? 'scale-110' : 'scale-100 opacity-60 grayscale'}`}>
                     <Flame className={`w-10 h-10 ${isCompletedToday ? 'text-orange-300 drop-shadow-[0_0_8px_rgba(253,186,116,0.8)]' : 'text-orange-500'} ${isFire && isCompletedToday ? 'animate-pulse' : ''}`} />
                     <span className={`text-xl font-black tracking-tighter mt-1 ${isCompletedToday ? 'text-white' : 'text-foreground'}`}>
                       {currentStreak} <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Hari</span>
