@@ -46,10 +46,14 @@ export default function TodoPage() {
     try {
       const data = await getUserNotes(user.uid);
       let todoData = data.filter((note: any) => note.isTodo) as TodoItem[];
-      let hasAutoCompleted = false;
+      let hasAutoUpdated = false;
 
       for (const todo of todoData) {
+        // Jika tugas terlewat hari INI, kita TIDAK MENCENTANGNYA selesai.
+        // Kita biarkan dia menjadi "Tidak Selesai" / Missed.
         if (!todo.isCompleted && todo.dueDate && todo.dueDate < todayStr) {
+          
+          // Jika tugas ini sifatnya berulang (rutin)
           if (todo.recurrence && todo.recurrence !== 'none') {
             let nextDue = new Date(todo.dueDate);
             const now = new Date(todayStr);
@@ -61,6 +65,7 @@ export default function TodoPage() {
             }
             const nextDueStr = getLocalIsoDate(nextDue);
 
+            // Generate kloning tugas untuk jadwal yang baru
             await addNote({
               title: todo.title,
               content: todo.content,
@@ -72,19 +77,18 @@ export default function TodoPage() {
               isHidden: todo.isHidden || false,
               isPinned: todo.isPinned || false,
               isCompleted: false,
-              subTasks: todo.subTasks || [], 
+              subTasks: todo.subTasks ? todo.subTasks.map(st => ({...st, isCompleted: false})) : [], 
               userId: user.uid,
             } as any);
 
-            await updateNote(todo.id, { isCompleted: true, recurrence: 'none' } as any);
-          } else {
-            await updateNote(todo.id, { isCompleted: true } as any);
+            // Lepaskan status rutinitas dari tugas yang terlewat ini agar menetap di histori
+            await updateNote(todo.id, { recurrence: 'none' } as any);
+            hasAutoUpdated = true;
           }
-          hasAutoCompleted = true;
         }
       }
 
-      if (hasAutoCompleted) {
+      if (hasAutoUpdated) {
         const updatedData = await getUserNotes(user.uid);
         todoData = updatedData.filter((note: any) => note.isTodo) as TodoItem[];
       }
@@ -114,9 +118,14 @@ export default function TodoPage() {
       return;
     }
 
-    const contextStr = weeklyTasks.map(t => 
-      `- [${t.isCompleted ? 'Selesai' : 'Belum/Terlewat'}] ${t.title} (Target: ${t.dueDate})`
-    ).join('\n');
+    // FIX: Beri konteks akurat ke AI mana yang Selesai, Tidak Selesai (Missed), atau masih berjalan
+    const contextStr = weeklyTasks.map(t => {
+      let status = "Selesai";
+      if (!t.isCompleted) {
+        status = (t.dueDate && t.dueDate < todayStr) ? "Tidak Selesai" : "Belum / Berjalan";
+      }
+      return `- [${status}] ${t.title} (Target: ${t.dueDate})`;
+    }).join('\n');
 
     try {
       const result = await callAI({
@@ -268,6 +277,12 @@ export default function TodoPage() {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = getLocalIsoDate(tomorrow);
       updates = { isCompleted: false, dueDate: tomorrowStr, isPinned: false };
+    } else if (targetCol === 'overdue') { // FIX: Target saat dilempar ke kolom Tidak Selesai (Kanban)
+      if (!todo.isCompleted && todo.dueDate && todo.dueDate < todayStr) return;
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = getLocalIsoDate(yesterday);
+      updates = { isCompleted: false, dueDate: yesterdayStr, isPinned: false };
     } else if (targetCol === 'pinned') {
       if (todo.isPinned) return;
       updates = { isPinned: true, isCompleted: false };

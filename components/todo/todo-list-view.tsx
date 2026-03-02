@@ -19,6 +19,8 @@ export function TodoListView({ todos, todayStr, onToggle, onDelete, onTogglePin 
   const pendingTodos = todos.filter(t => !t.isCompleted);
   const pinnedTodos = pendingTodos.filter(t => t.isPinned); 
   const unpinnedPending = pendingTodos.filter(t => !t.isPinned);
+  
+  // FIX: Kategorikan tugas ke Tidak Selesai (Missed)
   const overdue = unpinnedPending.filter(t => t.dueDate && t.dueDate < todayStr);
   const dueToday = unpinnedPending.filter(t => t.dueDate === todayStr);
   const upcomingAndNoDate = unpinnedPending.filter(t => !t.dueDate || t.dueDate > todayStr);
@@ -45,12 +47,12 @@ export function TodoListView({ todos, todayStr, onToggle, onDelete, onTogglePin 
         )}
       </Droppable>
 
-      {/* TERLEWAT */}
+      {/* TIDAK SELESAI (TERLEWAT) */}
       {overdue.length > 0 && (
         <Droppable droppableId="overdue" isDropDisabled={true}>
           {(provided) => (
             <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-3">
-              <h2 className="text-sm font-bold text-destructive flex items-center gap-2"><AlertCircle className="w-4 h-4" /> Terlewat ({overdue.length})</h2>
+              <h2 className="text-sm font-bold text-destructive flex items-center gap-2"><AlertCircle className="w-4 h-4" /> Tidak Selesai ({overdue.length})</h2>
               {overdue.map((todo, index) => (
                 <Draggable key={todo.id} draggableId={todo.id} index={index}>
                   {(provided, snapshot) => (

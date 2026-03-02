@@ -2,7 +2,7 @@
 
 import { Droppable, Draggable } from "@hello-pangea/dnd";
 import { TaskItem } from "./task-item";
-import { Clock, ListTodo, CheckCircle2 } from "lucide-react";
+import { Clock, ListTodo, CheckCircle2, AlertCircle } from "lucide-react";
 import { TodoItem } from "./types";
 
 interface TodoKanbanViewProps {
@@ -15,8 +15,11 @@ interface TodoKanbanViewProps {
 export function TodoKanbanView({ todos, todayStr, onToggle, onDelete }: TodoKanbanViewProps) {
   const pendingTodos = todos.filter(t => !t.isCompleted);
   const completedTodos = todos.filter(t => t.isCompleted);
-  const backlog = pendingTodos.filter(t => t.dueDate !== todayStr);
+  
+  // FIX: Tambahkan kategori Tidak Selesai di Kanban
+  const overdueTasks = pendingTodos.filter(t => t.dueDate && t.dueDate < todayStr);
   const todayTasks = pendingTodos.filter(t => t.dueDate === todayStr);
+  const backlog = pendingTodos.filter(t => !t.dueDate || t.dueDate > todayStr);
 
   const KanbanColumn = ({ title, icon: Icon, tasks, id, color }: any) => (
     <div className={`flex-1 min-w-[300px] max-w-sm flex flex-col bg-muted/30 rounded-[2rem] border border-border p-4 h-[65vh]`}>
@@ -54,7 +57,7 @@ export function TodoKanbanView({ todos, todayStr, onToggle, onDelete }: TodoKanb
                     className="transition-transform"
                   >
                     <div className="pointer-events-auto">
-                      <TaskItem todo={todo} onToggle={() => onToggle(todo)} onDelete={(e) => onDelete(todo.id, e)} />
+                      <TaskItem todo={todo} onToggle={() => onToggle(todo)} onDelete={(e) => onDelete(todo.id, e)} isOverdue={id === 'overdue'} />
                     </div>
                   </div>
                 )}
@@ -71,8 +74,10 @@ export function TodoKanbanView({ todos, todayStr, onToggle, onDelete }: TodoKanb
     <div className="animate-in fade-in duration-300">
       <p className="text-xs text-muted-foreground mb-4 text-center md:hidden">Geser ke kanan untuk melihat kolom lain 👉</p>
       <div className="flex gap-4 overflow-x-auto pb-8 snap-x">
-        <div className="snap-center"><KanbanColumn title="Akan Datang" icon={ListTodo} tasks={backlog} id="backlog" color="text-muted-foreground" /></div>
+        {/* Tambahkan Kolom Tidak Selesai Pertama */}
+        <div className="snap-center"><KanbanColumn title="Tidak Selesai" icon={AlertCircle} tasks={overdueTasks} id="overdue" color="text-destructive" /></div>
         <div className="snap-center"><KanbanColumn title="Fokus Hari Ini" icon={Clock} tasks={todayTasks} id="today" color="text-orange-500" /></div>
+        <div className="snap-center"><KanbanColumn title="Akan Datang" icon={ListTodo} tasks={backlog} id="backlog" color="text-muted-foreground" /></div>
         <div className="snap-center"><KanbanColumn title="Selesai" icon={CheckCircle2} tasks={completedTodos} id="done" color="text-green-500" /></div>
       </div>
     </div>
