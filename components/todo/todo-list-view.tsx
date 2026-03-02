@@ -20,9 +20,27 @@ export function TodoListView({ todos, todayStr, onToggle, onDelete, onTogglePin 
   const pinnedTodos = pendingTodos.filter(t => t.isPinned); 
   const unpinnedPending = pendingTodos.filter(t => !t.isPinned);
   
-  // FIX: Kategorikan tugas ke Tidak Selesai (Missed)
-  const overdue = unpinnedPending.filter(t => t.dueDate && t.dueDate < todayStr);
-  const dueToday = unpinnedPending.filter(t => t.dueDate === todayStr);
+  // Fungsi Helper untuk cek Overdue dengan memperhitungkan JAM (dueTime)
+  const isTaskOverdue = (t: TodoItem) => {
+    if (!t.dueDate) return false;
+    
+    const now = new Date();
+    // Buat Date object dari target dueDate dan dueTime
+    let targetDateStr = t.dueDate;
+    if (t.dueTime) {
+       targetDateStr += `T${t.dueTime}`;
+    } else {
+       // Jika tidak ada jam spesifik, batas waktu adalah penghujung hari itu (23:59:59)
+       targetDateStr += `T23:59:59`;
+    }
+    
+    const targetDate = new Date(targetDateStr);
+    return now > targetDate;
+  };
+
+  // FIX: Kategorisasi menggunakan logika waktu spesifik (Tanggal + Jam)
+  const overdue = unpinnedPending.filter(t => isTaskOverdue(t));
+  const dueToday = unpinnedPending.filter(t => t.dueDate === todayStr && !isTaskOverdue(t));
   const upcomingAndNoDate = unpinnedPending.filter(t => !t.dueDate || t.dueDate > todayStr);
 
   return (

@@ -41,6 +41,22 @@ export default function TodoPage() {
 
   const todayStr = useMemo(() => getLocalIsoDate(new Date()), []);
 
+  // --- Fungsi Helper untuk cek Overdue dengan memperhitungkan JAM (dueTime) ---
+  const isTaskOverdue = (t: TodoItem) => {
+    if (!t.dueDate) return false;
+    
+    const now = new Date();
+    let targetDateStr = t.dueDate;
+    if (t.dueTime) {
+       targetDateStr += `T${t.dueTime}`;
+    } else {
+       targetDateStr += `T23:59:59`;
+    }
+    
+    const targetDate = new Date(targetDateStr);
+    return now > targetDate;
+  };
+
   const fetchTodos = async () => {
     if (!user) return;
     try {
@@ -49,13 +65,11 @@ export default function TodoPage() {
       let hasAutoUpdated = false;
 
       for (const todo of todoData) {
-        // Jika tugas terlewat hari INI, kita TIDAK MENCENTANGNYA selesai.
-        // Kita biarkan dia menjadi "Tidak Selesai" / Missed.
-        if (!todo.isCompleted && todo.dueDate && todo.dueDate < todayStr) {
+        // FIX: Evaluasi overdue menggunakan helper baru
+        if (!todo.isCompleted && isTaskOverdue(todo)) {
           
-          // Jika tugas ini sifatnya berulang (rutin)
           if (todo.recurrence && todo.recurrence !== 'none') {
-            let nextDue = new Date(todo.dueDate);
+            let nextDue = new Date(todo.dueDate!);
             const now = new Date(todayStr);
             while (nextDue <= now) {
               if (todo.recurrence === 'daily') nextDue.setDate(nextDue.getDate() + 1);
@@ -65,7 +79,6 @@ export default function TodoPage() {
             }
             const nextDueStr = getLocalIsoDate(nextDue);
 
-            // Generate kloning tugas untuk jadwal yang baru
             await addNote({
               title: todo.title,
               content: todo.content,
@@ -81,7 +94,6 @@ export default function TodoPage() {
               userId: user.uid,
             } as any);
 
-            // Lepaskan status rutinitas dari tugas yang terlewat ini agar menetap di histori
             await updateNote(todo.id, { recurrence: 'none' } as any);
             hasAutoUpdated = true;
           }
@@ -118,13 +130,13 @@ export default function TodoPage() {
       return;
     }
 
-    // FIX: Beri konteks akurat ke AI mana yang Selesai, Tidak Selesai (Missed), atau masih berjalan
+    // FIX: Beri konteks akurat ke AI menggunakan isTaskOverdue
     const contextStr = weeklyTasks.map(t => {
       let status = "Selesai";
       if (!t.isCompleted) {
-        status = (t.dueDate && t.dueDate < todayStr) ? "Tidak Selesai" : "Belum / Berjalan";
+        status = isTaskOverdue(t) ? "Tidak Selesai" : "Belum / Berjalan";
       }
-      return `- [${status}] ${t.title} (Target: ${t.dueDate})`;
+      return `- [${status}] ${t.title} (Target: ${t.dueDate}${t.dueTime ? ` ${t.dueTime}` : ''})`;
     }).join('\n');
 
     try {
@@ -277,8 +289,9 @@ export default function TodoPage() {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = getLocalIsoDate(tomorrow);
       updates = { isCompleted: false, dueDate: tomorrowStr, isPinned: false };
-    } else if (targetCol === 'overdue') { // FIX: Target saat dilempar ke kolom Tidak Selesai (Kanban)
-      if (!todo.isCompleted && todo.dueDate && todo.dueDate < todayStr) return;
+    } else if (targetCol === 'overdue') { 
+      // FIX: Jangan di-drag jika dia memang sudah masuk kategori terlewat
+      if (!todo.isCompleted && isTaskOverdue(todo)) return;
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
       const yesterdayStr = getLocalIsoDate(yesterday);

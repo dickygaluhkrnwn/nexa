@@ -16,9 +16,31 @@ export function TodoKanbanView({ todos, todayStr, onToggle, onDelete }: TodoKanb
   const pendingTodos = todos.filter(t => !t.isCompleted);
   const completedTodos = todos.filter(t => t.isCompleted);
   
-  // FIX: Tambahkan kategori Tidak Selesai di Kanban
-  const overdueTasks = pendingTodos.filter(t => t.dueDate && t.dueDate < todayStr);
-  const todayTasks = pendingTodos.filter(t => t.dueDate === todayStr);
+  // Fungsi Helper untuk cek Overdue dengan memperhitungkan JAM (dueTime)
+  const isTaskOverdue = (t: TodoItem) => {
+    if (!t.dueDate) return false;
+    
+    const now = new Date();
+    // Buat Date object dari target dueDate dan dueTime
+    let targetDateStr = t.dueDate;
+    if (t.dueTime) {
+       targetDateStr += `T${t.dueTime}`;
+    } else {
+       // Jika tidak ada jam spesifik, batas waktu adalah penghujung hari itu (23:59:59)
+       targetDateStr += `T23:59:59`;
+    }
+    
+    const targetDate = new Date(targetDateStr);
+    return now > targetDate;
+  };
+
+  // FIX: Kategorisasi menggunakan logika waktu spesifik (Tanggal + Jam)
+  const overdueTasks = pendingTodos.filter(t => isTaskOverdue(t));
+  
+  // Tugas Hari Ini: Harus jatuh tempo hari ini DAN belum lewat waktunya
+  const todayTasks = pendingTodos.filter(t => t.dueDate === todayStr && !isTaskOverdue(t));
+  
+  // Backlog: Tugas masa depan atau tidak punya tanggal sama sekali
   const backlog = pendingTodos.filter(t => !t.dueDate || t.dueDate > todayStr);
 
   const KanbanColumn = ({ title, icon: Icon, tasks, id, color }: any) => (

@@ -41,6 +41,22 @@ export function TodoCalendarView({
   const selectedDateStr = getLocalIsoDate(selectedDate);
   const tasksForSelectedDate = todos.filter(t => t.dueDate === selectedDateStr);
 
+  // --- Fungsi Helper untuk cek Overdue dengan memperhitungkan JAM (dueTime) ---
+  const isTaskOverdue = (t: TodoItem) => {
+    if (!t.dueDate) return false;
+    
+    const now = new Date();
+    let targetDateStr = t.dueDate;
+    if (t.dueTime) {
+       targetDateStr += `T${t.dueTime}`;
+    } else {
+       targetDateStr += `T23:59:59`;
+    }
+    
+    const targetDate = new Date(targetDateStr);
+    return now > targetDate;
+  };
+
   return (
     <div className="animate-in fade-in duration-300 space-y-6">
       {/* Header Kalender */}
@@ -68,8 +84,13 @@ export function TodoCalendarView({
             const dateStr = getLocalIsoDate(date);
             const isSelected = dateStr === selectedDateStr;
             const isToday = dateStr === todayStr;
+            
             const dayTasks = todos.filter(t => t.dueDate === dateStr);
-            const pendingCount = dayTasks.filter(t => !t.isCompleted).length;
+            const pendingTasks = dayTasks.filter(t => !t.isCompleted);
+            
+            // Hitung tugas yang overdue dan yang masih aman
+            const overdueCount = pendingTasks.filter(t => isTaskOverdue(t)).length;
+            const normalPendingCount = pendingTasks.length - overdueCount;
 
             return (
               <button
@@ -78,12 +99,20 @@ export function TodoCalendarView({
                 className={`h-12 rounded-xl flex flex-col items-center justify-center relative transition-all ${isSelected ? 'bg-primary text-primary-foreground shadow-md' : isToday ? 'bg-primary/10 text-primary font-bold' : 'hover:bg-muted text-foreground'}`}
               >
                 <span>{date.getDate()}</span>
-                {pendingCount > 0 && (
+                
+                {/* Rendering Titik Indikator Tugas */}
+                {pendingTasks.length > 0 && (
                   <div className="flex gap-0.5 mt-1">
-                    {Array.from({ length: Math.min(pendingCount, 3) }).map((_, i) => (
-                      <div key={i} className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-orange-500'}`} />
+                    {/* Render titik merah untuk tugas overdue */}
+                    {Array.from({ length: Math.min(overdueCount, 3) }).map((_, i) => (
+                      <div key={`overdue-${i}`} className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-destructive'}`} />
                     ))}
-                    {pendingCount > 3 && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-orange-500'}`} />}
+                    {/* Render titik oranye untuk tugas biasa */}
+                    {Array.from({ length: Math.min(normalPendingCount, 3 - Math.min(overdueCount, 3)) }).map((_, i) => (
+                      <div key={`normal-${i}`} className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-orange-500'}`} />
+                    ))}
+                    
+                    {pendingTasks.length > 3 && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-muted-foreground'}`} />}
                   </div>
                 )}
               </button>
@@ -101,7 +130,14 @@ export function TodoCalendarView({
           <p className="text-center text-sm text-muted-foreground py-8 border border-dashed rounded-2xl">Tidak ada tugas di hari ini.</p>
         ) : (
           tasksForSelectedDate.map(todo => (
-            <TaskItem key={todo.id} todo={todo} onToggle={() => onToggle(todo)} onDelete={(e) => onDelete(todo.id, e)} />
+            <TaskItem 
+              key={todo.id} 
+              todo={todo} 
+              onToggle={() => onToggle(todo)} 
+              onDelete={(e) => onDelete(todo.id, e)} 
+              // FIX: Lempar props isOverdue ke komponen TaskItem
+              isOverdue={!todo.isCompleted && isTaskOverdue(todo)}
+            />
           ))
         )}
       </div>
