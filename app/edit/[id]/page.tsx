@@ -11,7 +11,7 @@ import {
   Tag as TagIcon, Lock, Unlock, 
   Sparkles, X, Download, FileText, File, Printer,
   Camera, Image as ImageIcon,
-  Share2, Trash2, Network, FolderTree 
+  Share2, Trash2, Network, FolderTree, Brain
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
@@ -23,6 +23,7 @@ import { useNoteAi } from "@/hooks/use-note-ai";
 import { AiToolbar } from "@/components/notes/ai-toolbar";
 import { ChatOverlay } from "@/components/notes/chat-overlay";
 import { MindMapViewer } from "@/components/notes/mindmap-viewer";
+import { FlashcardModal } from "@/components/flashcards/flashcard-modal"; 
 
 export default function EditNotePage() {
   const { user } = useAuth();
@@ -33,33 +34,37 @@ export default function EditNotePage() {
   const { showAlert, showConfirm } = useModal(); 
   const { callAI } = useGemini(); 
   
-  // 1. STATE FORM (Judul, Konten, Tag, Parent)
+  // 1. STATE FORM
   const {
     title, setTitle, content, setContent, tags, setTags,
     tagInput, setTagInput, isHidden, setIsHidden,
-    parentId, setParentId, // <-- AMBIL STATE PARENT DARI HOOK
+    parentId, setParentId,
     editorKey, forceRenderEditor, handleKeyDownTag, removeTag
   } = useNoteForm();
 
-  // 2. STATE EKSPOR DOKUMEN
+  // 2. STATE EKSPOR
   const {
     showExportMenu, setShowExportMenu,
     handleExportTXT, handleExportDOC, handleExportPDF
   } = useExport(title, content);
 
-  // 3. STATE MIND MAP
+  // 3. STATE MIND MAP & FLASHCARDS
   const [mindMapHistory, setMindMapHistory] = useState<string[]>([]);
   const [showMindMap, setShowMindMap] = useState(false); 
+  
+  const [flashcardsHistory, setFlashcardsHistory] = useState<any[][]>([]); 
+  const [showFlashcards, setShowFlashcards] = useState(false);
 
   // 4. STATE AI & HARDWARE
   const {
-    isSummarizing, isGeneratingTags, isFormatting, isGeneratingMindMap,
+    isSummarizing, isGeneratingTags, isFormatting, isGeneratingMindMap, isGeneratingFlashcards,
     isScanning, isAnalyzingVoice, isRecording, aiSummary, setAiSummary,
-    handleAutoFormat, handleSummarize, handleGenerateTags, handleGenerateMindMap,
+    handleAutoFormat, handleSummarize, handleGenerateTags, handleGenerateMindMap, handleGenerateFlashcards,
     handleImageUpload, handleVoiceRecord
   } = useNoteAi({
     title, setTitle, content, setContent, tags, setTags, forceRenderEditor,
-    mindMapHistory, setMindMapHistory, setShowMindMap
+    mindMapHistory, setMindMapHistory, setShowMindMap,
+    flashcardsHistory, setFlashcardsHistory, setShowFlashcards 
   });
 
   // State Halaman
@@ -83,14 +88,34 @@ export default function EditNotePage() {
           setContent(noteData.content);
           setTags(noteData.tags || []);
           setIsHidden((noteData as any).isHidden || false);
-          
-          // SET PARENT ID DARI DATABASE
           setParentId((noteData as any).parentId || null);
           
           const existingMindMap = (noteData as any).mindmapCode;
           if (Array.isArray(existingMindMap)) setMindMapHistory(existingMindMap);
           else if (typeof existingMindMap === 'string') setMindMapHistory([existingMindMap]);
           else setMindMapHistory([]);
+
+          // FIX: PARSING DATA FLASHCARD DARI FIRESTORE (String -> Array of Arrays)
+          const existingFlashcards = (noteData as any).flashcards;
+          if (existingFlashcards) {
+             try {
+                // Jika data yang ditarik berbentuk string (karena kita serialize saat simpan)
+                if (typeof existingFlashcards === 'string') {
+                   const parsed = JSON.parse(existingFlashcards);
+                   setFlashcardsHistory(Array.isArray(parsed) ? parsed : []);
+                } 
+                // Fallback jika suatu saat ada data lama berbentuk array
+                else if (Array.isArray(existingFlashcards)) {
+                   setFlashcardsHistory(existingFlashcards);
+                }
+             } catch (e) {
+                console.error("Gagal mem-parsing histori flashcard", e);
+                setFlashcardsHistory([]);
+             }
+          } else {
+            setFlashcardsHistory([]);
+          }
+          
         } else {
           showAlert("Akses Ditolak", "Catatan tidak ditemukan atau kamu tidak memiliki akses.");
           router.push("/");
@@ -106,7 +131,7 @@ export default function EditNotePage() {
     fetchNote();
   }, [user, noteId, router, showAlert, setTitle, setContent, setTags, setIsHidden, setParentId]); 
 
-  // Fetch Catatan untuk Bi-Directional Linking dan Dropdown Parent
+  // Fetch Catatan untuk Linking
   useEffect(() => {
     if (user && noteId) {
       getUserNotes(user.uid).then(notes => {
@@ -123,7 +148,11 @@ export default function EditNotePage() {
     
     if (title.trim() || content !== '<p></p>') {
       setIsSaving(true);
-      try { await updateNote(noteId, { title: title || "Tanpa Judul", content, tags, isHidden, parentId } as any); } 
+      try { 
+        // FIX: Serialize Flashcard History saat Auto-Save
+        const serializedFlashcards = JSON.stringify(flashcardsHistory);
+        await updateNote(noteId, { title: title || "Tanpa Judul", content, tags, isHidden, parentId, flashcards: serializedFlashcards } as any); 
+      } 
       catch (e) { console.error("Auto-save sebelum share gagal", e); } 
       finally { setIsSaving(false); }
     }
@@ -162,13 +191,17 @@ export default function EditNotePage() {
         } catch (e: any) { console.error("Auto-tagging gagal...", e); }
       }
 
+      // FIX: SERIALIZE FLASHCARDS MENJADI STRING AGAR FIRESTORE TIDAK ERROR
+      const serializedFlashcards = JSON.stringify(flashcardsHistory);
+
       await updateNote(noteId, { 
         title: title || "Tanpa Judul", 
         content, 
         tags: finalTags, 
         isHidden, 
         mindmapCode: mindMapHistory,
-        parentId: parentId // <-- SIMPAN PARENT ID SAAT UPDATE
+        parentId: parentId, 
+        flashcards: serializedFlashcards // <-- SIMPAN VERSI STRING JSON
       } as any);
       router.push("/notes"); 
     } catch (error) {
@@ -194,6 +227,11 @@ export default function EditNotePage() {
           </div>
 
           <div className="flex items-center gap-1">
+            {flashcardsHistory.length > 0 && (
+               <Button variant="ghost" size="icon" onClick={() => setShowFlashcards(true)} className="text-indigo-500 hover:bg-indigo-500/10 rounded-full transition-colors" title="Buka Sesi Kuis">
+                 <Brain className="w-5 h-5" />
+               </Button>
+            )}
             {mindMapHistory.length > 0 && (
                <Button variant="ghost" size="icon" onClick={() => setShowMindMap(true)} className="text-rose-500 hover:bg-rose-500/10 rounded-full transition-colors" title="Buka Peta Konsep">
                  <Network className="w-5 h-5" />
@@ -210,12 +248,10 @@ export default function EditNotePage() {
 
         <div className="px-4 space-y-4 print:p-0">
           
-          {/* Area Judul */}
           <div>
             <input type="text" placeholder="Judul Catatan..." value={title} onChange={(e) => setTitle(e.target.value)} className="w-full text-4xl font-extrabold tracking-tight bg-transparent border-none outline-none placeholder:text-muted-foreground/30 focus:ring-0 print:text-black print:p-0" />
           </div>
 
-          {/* Area Tags */}
           <div className="flex flex-wrap items-center gap-2 print:hidden">
             {tags.map((tag) => (
               <span key={tag} className="px-3 py-1.5 text-xs font-medium bg-primary/10 text-primary rounded-lg flex items-center gap-1.5 animate-in zoom-in-95">
@@ -226,7 +262,6 @@ export default function EditNotePage() {
             <input type="text" placeholder={tags.length === 0 ? "Ketik tag lalu Enter..." : "+ Tambah tag..."} value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={handleKeyDownTag} className="bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground focus:ring-0 min-w-[120px]" />
           </div>
 
-          {/* --- DROPDOWN PILIH INDUK (PARENT) CATATAN --- */}
           <div className="flex items-center gap-2 bg-muted/30 p-1.5 rounded-xl border border-border/50 print:hidden w-full md:w-fit">
             <FolderTree className="w-4 h-4 text-muted-foreground ml-2 shrink-0" />
             <select
@@ -241,7 +276,6 @@ export default function EditNotePage() {
             </select>
           </div>
 
-          {/* Toolbar Privasi & Input Media */}
           <div className="flex flex-wrap items-center gap-2 pt-2 print:hidden">
             <Button variant={isHidden ? "default" : "outline"} size="sm" onClick={() => setIsHidden(!isHidden)} className={`rounded-xl transition-all ${isHidden ? "bg-purple-600 hover:bg-purple-700 text-white border-purple-600" : "bg-card text-muted-foreground hover:bg-purple-500/10 hover:text-purple-500 border-border"}`}>
               {isHidden ? <Lock className="w-4 h-4 mr-2 text-white" /> : <Unlock className="w-4 h-4 mr-2" />} 
@@ -258,17 +292,18 @@ export default function EditNotePage() {
             </Button>
           </div>
 
-          {/* Toolbar AI */}
           <AiToolbar 
             onOpenChat={() => setIsChatOpen(true)}
             onGenerateMindMap={handleGenerateMindMap}
             onAutoFormat={handleAutoFormat}
             onGenerateTags={handleGenerateTags}
             onSummarize={handleSummarize}
+            onGenerateFlashcards={handleGenerateFlashcards} 
             isGeneratingMindMap={isGeneratingMindMap}
             isFormatting={isFormatting}
             isGeneratingTags={isGeneratingTags}
             isSummarizing={isSummarizing}
+            isGeneratingFlashcards={isGeneratingFlashcards} 
             isContentEmpty={plainTextLength === 0}
             isTitleAndContentEmpty={!title.trim() && plainTextLength === 0}
             onVoiceRecord={handleVoiceRecord}
@@ -277,7 +312,6 @@ export default function EditNotePage() {
             onStopRecording={() => (window as any).stopNexaRecording && (window as any).stopNexaRecording()}
           />
 
-          {/* Hasil Ringkasan AI */}
           {aiSummary && (
             <div className="relative p-5 rounded-2xl bg-gradient-to-br from-cyan-500/10 via-purple-500/5 to-purple-500/10 border border-purple-500/20 animate-in fade-in zoom-in-95 shadow-sm print:hidden">
               <button onClick={() => setAiSummary(null)} className="absolute top-2 right-2 text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full"><X className="w-4 h-4"/></button>
@@ -288,13 +322,11 @@ export default function EditNotePage() {
             </div>
           )}
 
-          {/* Editor Teks */}
           <div className="pt-2 print:text-black">
             <TiptapEditor key={editorKey} content={content} onChange={setContent} availableNotes={availableNotes} />
           </div>
         </div>
 
-        {/* FLOATING BOTTOM ACTION BAR */}
         <div className="fixed bottom-20 md:bottom-8 left-0 right-0 z-40 px-4 pointer-events-none print:hidden">
           <div className="max-w-2xl mx-auto flex items-center justify-between pointer-events-auto">
             <div className="relative">
@@ -322,6 +354,10 @@ export default function EditNotePage() {
 
       {showMindMap && mindMapHistory.length > 0 && (
         <MindMapViewer history={mindMapHistory} onClose={() => setShowMindMap(false)} />
+      )}
+
+      {showFlashcards && flashcardsHistory.length > 0 && (
+        <FlashcardModal history={flashcardsHistory} onClose={() => setShowFlashcards(false)} />
       )}
 
       <ChatOverlay isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} noteTitle={title} noteContent={content} />

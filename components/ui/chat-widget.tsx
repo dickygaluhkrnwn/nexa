@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 import { getUserNotes, NoteData } from "@/lib/notes-service";
 import { usePathname } from "next/navigation"; 
-import { useGemini } from "@/hooks/use-gemini"; // <-- Import Hook AI
+import { useGemini } from "@/hooks/use-gemini"; 
+import { extractMetadata } from "@/lib/rag-engine"; // <-- Import RAG Engine
 
 interface Message {
   role: "user" | "ai";
@@ -16,11 +17,11 @@ interface Message {
 export function ChatWidget() {
   const { user } = useAuth();
   const pathname = usePathname(); 
-  const { callAI, isAiLoading } = useGemini(); // <-- Panggil Hook AI (callAI dan isAiLoading)
+  const { ragChat, isAiLoading } = useGemini(); // <-- Gunakan RAG Chat
   
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
-    { role: "ai", content: "Halo! Aku Nexa. Ada yang mau ditanyakan soal catatanmu hari ini?" }
+    { role: "ai", content: "Halo! Aku asisten Nexa. Aku bisa mencarikan informasi dari seluruh tumpukan catatanmu. Ada yang mau ditanyakan?" }
   ]);
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -30,24 +31,28 @@ export function ChatWidget() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isAiLoading]);
 
-  // SEMBUNYIKAN WIDGET JIKA:
-  // 1. User belum login
-  // 2. Berada di halaman /create (termasuk /create-todo)
-  // 3. Berada di halaman /edit (termasuk /edit-todo)
-  // 4. Berada di halaman /todo (karena sudah ada Pomodoro Timer)
   if (!user || pathname.startsWith('/create') || pathname.startsWith('/edit') || pathname.startsWith('/todo')) {
     return null;
   }
 
-  // Fungsi simpel untuk me-render Markdown dasar (Bold dan Italic) menjadi HTML
-  const formatMessageContent = (text: string) => {
+  // --- RENDERING TEKS AI SPESIAL ---
+  // Fungsi ini mengubah [[Judul]] menjadi link HTML sungguhan yang bisa di-klik
+  const formatMessageContent = (text: string, notes: (NoteData & { id: string })[]) => {
     let formattedText = text;
-    // Mengubah **teks** menjadi <strong>teks</strong>
     formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    // Mengubah *teks* menjadi <em>teks</em>
     formattedText = formattedText.replace(/\*(.*?)\*/g, '<em>$1</em>');
-    // Mengubah baris baru menjadi <br />
     formattedText = formattedText.replace(/\n/g, '<br />');
+    
+    // Konversi [[Mention]] ke tag <a> link biru
+    const mentionRegex = /\[\[(.*?)\]\]/g;
+    formattedText = formattedText.replace(mentionRegex, (match, title) => {
+      // Cari ID catatan berdasarkan judul yang disebut AI
+      const foundNote = notes.find(n => n.title?.toLowerCase() === title.toLowerCase());
+      if (foundNote) {
+        return `<a href="/edit/${foundNote.id}" target="_blank" class="text-blue-500 font-bold hover:underline bg-blue-500/10 px-1 rounded">@${title}</a>`;
+      }
+      return `<span class="text-muted-foreground italic">[Catatan tidak ditemukan: ${title}]</span>`;
+    });
     
     return formattedText;
   };
@@ -60,26 +65,30 @@ export function ChatWidget() {
     setMessages(prev => [...prev, { role: "user", content: userMessage }]);
 
     try {
-      const notes = await getUserNotes(user.uid);
-      const typedNotes = notes as (NoteData & { id: string })[];
-      const contextString = typedNotes.map(n => `Judul: ${n.title}\nIsi: ${n.content.replace(/<[^>]+>/g, ' ')}\n---`).join('\n');
+      // 1. Tarik semua catatan
+      const notesData = await getUserNotes(user.uid);
+      const typedNotes = notesData as (NoteData & { id: string })[];
+      
+      // 2. Siapkan Metadata untuk Langkah 1 (Pemilihan Dokumen)
+      const meta = extractMetadata(typedNotes);
 
-      // PERBAIKAN: Gunakan callAI alih-alih fetch manual agar error limit tertangkap
-      const result = await callAI({
-        action: "chat", 
-        prompt: userMessage,
-        context: contextString
-      });
+      // 3. Panggil RAG Engine 
+      // (AI akan mikir, milih dokumen, baca isinya, lalu jawab)
+      const result = await ragChat(userMessage, meta, typedNotes);
 
-      setMessages(prev => [...prev, { role: "ai", content: result }]);
+      // 4. Format dan render balasan AI
+      setMessages(prev => [...prev, { 
+        role: "ai", 
+        // Simpan format mentah dulu, render HTML-nya di bawah
+        content: formatMessageContent(result, typedNotes) 
+      }]);
+
     } catch (error: any) {
       console.error(error);
       if (error.message === "QUOTA_EXCEEDED") {
-        // Hapus pesan user terakhir jika gagal karena limit, agar bisa diketik ulang nanti
-        // dan modal peringatan kuota akan otomatis muncul dari useGemini hook
         setMessages(prev => prev.slice(0, -1));
       } else {
-        setMessages(prev => [...prev, { role: "ai", content: "Aduh, koneksiku ke server putus. Coba tanya lagi ya!" }]);
+        setMessages(prev => [...prev, { role: "ai", content: "Aduh, servernya lagi sibuk mikir. Coba tanya lagi ya!" }]);
       }
     }
   };
@@ -101,8 +110,8 @@ export function ChatWidget() {
               <Bot className="w-4 h-4 text-white" />
             </div>
             <div>
-              <h3 className="font-bold text-sm leading-tight">Nexa AI</h3>
-              <p className="text-[10px] text-muted-foreground">Selalu siap membantu</p>
+              <h3 className="font-bold text-sm leading-tight">Nexa RAG Chat</h3>
+              <p className="text-[10px] text-muted-foreground">Mencari info dari catatanmu</p>
             </div>
           </div>
           <Button variant="ghost" size="icon" className="w-8 h-8 rounded-full hover:bg-muted-foreground/10" onClick={() => setIsOpen(false)}>
@@ -118,9 +127,10 @@ export function ChatWidget() {
                   <Bot className="w-3 h-3 text-primary" />
                 </div>
               )}
+              {/* Pesan AI sudah dirender HTML-nya saat di-push ke array */}
               <div 
                 className={`px-4 py-2 text-sm rounded-2xl max-w-[85%] leading-relaxed ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-tr-sm" : "bg-muted rounded-tl-sm border border-border/50"}`}
-                dangerouslySetInnerHTML={{ __html: msg.role === "ai" ? formatMessageContent(msg.content) : msg.content }}
+                dangerouslySetInnerHTML={{ __html: msg.content }}
               />
             </div>
           ))}
@@ -150,7 +160,6 @@ export function ChatWidget() {
             placeholder="Tanya Nexa soal catatanmu..."
             className="flex-1 bg-muted px-4 py-2 text-sm rounded-full outline-none focus:ring-2 focus:ring-primary/50 transition-all placeholder:text-muted-foreground/50"
           />
-          {/* Disabled menggunakan isAiLoading */}
           <Button size="icon" className="rounded-full shrink-0 h-10 w-10 shadow-md bg-primary hover:bg-primary/90" onClick={handleSend} disabled={isAiLoading || !input.trim()}>
             <Send className="w-4 h-4 ml-0.5" />
           </Button>

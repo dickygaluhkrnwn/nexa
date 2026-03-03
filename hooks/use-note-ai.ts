@@ -13,14 +13,19 @@ interface UseNoteAiProps {
   mindMapHistory: string[];
   setMindMapHistory: React.Dispatch<React.SetStateAction<string[]>>;
   setShowMindMap: (val: boolean) => void;
+  // --- TAMBAHAN UNTUK FLASHCARDS ---
+  flashcardsHistory?: any[]; // Menerima dari DB (hanya untuk edit, create default kosong)
+  setFlashcardsHistory?: React.Dispatch<React.SetStateAction<any[]>>;
+  setShowFlashcards?: (val: boolean) => void;
 }
 
 export function useNoteAi({
   title, setTitle, content, setContent, 
   tags, setTags, forceRenderEditor, 
-  mindMapHistory, setMindMapHistory, setShowMindMap
+  mindMapHistory, setMindMapHistory, setShowMindMap,
+  flashcardsHistory, setFlashcardsHistory, setShowFlashcards // <-- AMBIL PROPS BARU
 }: UseNoteAiProps) {
-  const { callAI } = useGemini();
+  const { callAI, generateFlashcards } = useGemini(); // <-- PASTIKAN generateFlashcards DI-IMPORT DARI useGemini
   const { showAlert, showQuotaAlert } = useModal();
 
   // State Loading Spesifik
@@ -28,6 +33,7 @@ export function useNoteAi({
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const [isFormatting, setIsFormatting] = useState(false);
   const [isGeneratingMindMap, setIsGeneratingMindMap] = useState(false);
+  const [isGeneratingFlashcards, setIsGeneratingFlashcards] = useState(false); // <-- STATE LOADING BARU
   const [isScanning, setIsScanning] = useState(false);
   const [isAnalyzingVoice, setIsAnalyzingVoice] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -101,6 +107,31 @@ export function useNoteAi({
       else console.error("Gagal membuat mind map", error);
     } finally {
       setIsGeneratingMindMap(false);
+    }
+  };
+
+  // --- FUNGSI BARU: GENERATE FLASHCARDS ---
+  const handleGenerateFlashcards = async () => {
+    if (!setFlashcardsHistory || !setShowFlashcards) return; // Pengaman
+    
+    setIsGeneratingFlashcards(true);
+    try {
+      const plainText = content.replace(/<[^>]+>/g, ' ').trim();
+      const newFlashcards = await generateFlashcards(`Judul: ${title}\n\nIsi: ${plainText}`);
+      
+      if (newFlashcards && newFlashcards.length > 0) {
+        // Simpan versi flashcard ini ke array history (di depan)
+        setFlashcardsHistory(prev => [newFlashcards, ...prev]);
+        setShowFlashcards(true); // Buka modal viewer
+        showAlert("Berhasil! 🧠", `${newFlashcards.length} Flashcard baru berhasil dibuat.`);
+      } else {
+         showAlert("Gagal", "AI tidak dapat menemukan poin penting untuk dibuat kuis.");
+      }
+    } catch (error: any) {
+      if (error.message === "QUOTA_EXCEEDED") showQuotaAlert();
+      else console.error("Gagal membuat flashcards", error);
+    } finally {
+      setIsGeneratingFlashcards(false);
     }
   };
 
@@ -245,6 +276,7 @@ export function useNoteAi({
     isGeneratingTags,
     isFormatting,
     isGeneratingMindMap,
+    isGeneratingFlashcards, // <-- EXPORT STATE LOADING BARU
     isScanning,
     isAnalyzingVoice,
     isRecording,
@@ -254,6 +286,7 @@ export function useNoteAi({
     handleSummarize,
     handleGenerateTags,
     handleGenerateMindMap,
+    handleGenerateFlashcards, // <-- EXPORT FUNGSI BARU
     handleImageUpload,
     handleVoiceRecord,
   };

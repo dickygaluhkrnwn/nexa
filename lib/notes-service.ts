@@ -35,6 +35,7 @@ export interface NoteData {
   status?: 'todo' | 'in-progress' | 'done'; 
   mindmapCode?: string[] | null; 
   parentId?: string | null; // <-- TAMBAHAN UNTUK RELASI PARENT-ANAK
+  flashcards?: any[] | null; // <-- TAMBAHAN: Array objek flashcard (JSON)
   userId: string;
   createdAt?: any;
   updatedAt?: any;

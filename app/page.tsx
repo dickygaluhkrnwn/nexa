@@ -6,14 +6,15 @@ import {
   Loader2, Plus, FileText, ListTodo, LockKeyhole, 
   ArrowRight, Circle, CalendarClock, User as UserIcon,
   Sparkles, Mic, Camera, CheckCircle2, AlertCircle, Clock,
-  ChevronRight, Brain // <-- Tambahkan ikon Brain
+  ChevronRight, Brain 
 } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
 import { getUserNotes, NoteData } from "@/lib/notes-service";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal";
 import { HabitTracker } from "@/components/todo/habit-tracker";
-import { FocusAnalytics } from "@/components/dashboard/focus-analytics"; // <-- IMPORT FOCUS ANALYTICS
+import { FocusAnalytics } from "@/components/dashboard/focus-analytics";
+import { DailyBriefingModal } from "@/components/ai/daily-briefing-modal"; // <-- IMPORT KOMPONEN DAILY BRIEFING
 
 type DashboardNote = NoteData & { id: string; isCompleted?: boolean; isHidden?: boolean };
 
@@ -314,6 +315,11 @@ export default function Home() {
           </div>
         </>
       )}
+
+      {/* --- MOUNTING DAILY BRIEFING MODAL DI SINI --- */}
+      <DailyBriefingModal />
+      {/* --------------------------------------------- */}
+
     </div>
   );
 }

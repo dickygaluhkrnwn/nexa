@@ -10,18 +10,19 @@ import {
   Loader2, Save, ArrowLeft,
   Tag as TagIcon, Lock, Unlock, 
   Sparkles, X, Download, FileText, File, Printer,
-  Camera, Image as ImageIcon, Network, FolderTree
+  Camera, Image as ImageIcon, Network, FolderTree, Brain
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
 import { useGemini } from "@/hooks/use-gemini"; 
 import { useNoteForm } from "@/hooks/use-note-form";
 import { useExport } from "@/hooks/use-export";
-import { useNoteAi } from "@/hooks/use-note-ai"; // <-- IMPORT HOOK AI
+import { useNoteAi } from "@/hooks/use-note-ai"; 
 
 import { AiToolbar } from "@/components/notes/ai-toolbar";
 import { ChatOverlay } from "@/components/notes/chat-overlay";
 import { MindMapViewer } from "@/components/notes/mindmap-viewer";
+import { FlashcardModal } from "@/components/flashcards/flashcard-modal"; // <-- IMPORT MODAL FLASHCARD
 
 export default function CreateNotePage() {
   const { user } = useAuth();
@@ -33,7 +34,7 @@ export default function CreateNotePage() {
   const {
     title, setTitle, content, setContent, tags, setTags,
     tagInput, setTagInput, isHidden, setIsHidden,
-    parentId, setParentId, // <-- AMBIL STATE PARENT DARI HOOK
+    parentId, setParentId,
     editorKey, forceRenderEditor, handleKeyDownTag, removeTag
   } = useNoteForm();
 
@@ -43,19 +44,23 @@ export default function CreateNotePage() {
     handleExportTXT, handleExportDOC, handleExportPDF
   } = useExport(title, content);
 
-  // 3. STATE MIND MAP
+  // 3. STATE MIND MAP & FLASHCARDS
   const [mindMapHistory, setMindMapHistory] = useState<string[]>([]);
   const [showMindMap, setShowMindMap] = useState(false); 
+  
+  const [flashcardsHistory, setFlashcardsHistory] = useState<any[][]>([]); // <-- STATE FLASHCARDS
+  const [showFlashcards, setShowFlashcards] = useState(false);
 
-  // 4. STATE AI & HARDWARE (Semua disedot ke Hook ini!)
+  // 4. STATE AI & HARDWARE
   const {
-    isSummarizing, isGeneratingTags, isFormatting, isGeneratingMindMap,
+    isSummarizing, isGeneratingTags, isFormatting, isGeneratingMindMap, isGeneratingFlashcards,
     isScanning, isAnalyzingVoice, isRecording, aiSummary, setAiSummary,
-    handleAutoFormat, handleSummarize, handleGenerateTags, handleGenerateMindMap,
+    handleAutoFormat, handleSummarize, handleGenerateTags, handleGenerateMindMap, handleGenerateFlashcards,
     handleImageUpload, handleVoiceRecord
   } = useNoteAi({
     title, setTitle, content, setContent, tags, setTags, forceRenderEditor,
-    mindMapHistory, setMindMapHistory, setShowMindMap
+    mindMapHistory, setMindMapHistory, setShowMindMap,
+    flashcardsHistory, setFlashcardsHistory, setShowFlashcards // <-- OPER STATE FLASHCARD
   });
 
   const [isSaving, setIsSaving] = useState(false);
@@ -112,6 +117,9 @@ export default function CreateNotePage() {
         }
       }
 
+      // FIX: SERIALIZE FLASHCARDS MENJADI STRING AGAR FIRESTORE TIDAK ERROR
+      const serializedFlashcards = JSON.stringify(flashcardsHistory);
+
       await addNote({
         title: title || "Tanpa Judul",
         content: content,
@@ -120,7 +128,8 @@ export default function CreateNotePage() {
         dueDate: null, 
         isHidden: isHidden,
         mindmapCode: mindMapHistory, 
-        parentId: parentId, // <-- SIMPAN PARENT ID KE DATABASE
+        parentId: parentId, 
+        flashcards: serializedFlashcards, // <-- SIMPAN VERSI STRING JSON
         userId: user.uid,
       } as any);
       
@@ -156,8 +165,13 @@ export default function CreateNotePage() {
             <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Buat Catatan</span>
           </div>
           
-          {/* Tombol Buka Mind Map di Header jika riwayat sudah ada */}
+          {/* Tombol Buka Mind Map & Flashcard di Header jika riwayat sudah ada */}
           <div className="flex items-center gap-1">
+            {flashcardsHistory.length > 0 && (
+               <Button variant="ghost" size="icon" onClick={() => setShowFlashcards(true)} className="text-indigo-500 hover:bg-indigo-500/10 rounded-full transition-colors" title="Buka Sesi Kuis">
+                 <Brain className="w-5 h-5" />
+               </Button>
+            )}
             {mindMapHistory.length > 0 && (
                <Button variant="ghost" size="icon" onClick={() => setShowMindMap(true)} className="text-rose-500 hover:bg-rose-500/10 rounded-full transition-colors" title="Buka Peta Konsep">
                  <Network className="w-5 h-5" />
@@ -232,10 +246,12 @@ export default function CreateNotePage() {
             onAutoFormat={handleAutoFormat}
             onGenerateTags={handleGenerateTags}
             onSummarize={handleSummarize}
+            onGenerateFlashcards={handleGenerateFlashcards} // <-- PANGGIL FUNGSI KUIS
             isGeneratingMindMap={isGeneratingMindMap}
             isFormatting={isFormatting}
             isGeneratingTags={isGeneratingTags}
             isSummarizing={isSummarizing}
+            isGeneratingFlashcards={isGeneratingFlashcards} // <-- STATUS LOADING KUIS
             isContentEmpty={plainTextLength === 0}
             isTitleAndContentEmpty={!title.trim() && plainTextLength === 0}
             onVoiceRecord={handleVoiceRecord}
@@ -299,12 +315,12 @@ export default function CreateNotePage() {
         <MindMapViewer history={mindMapHistory} onClose={() => setShowMindMap(false)} />
       )}
 
-      <ChatOverlay 
-        isOpen={isChatOpen} 
-        onClose={() => setIsChatOpen(false)} 
-        noteTitle={title}
-        noteContent={content}
-      />
+      {/* RENDER MODAL FLASHCARD */}
+      {showFlashcards && flashcardsHistory.length > 0 && (
+        <FlashcardModal history={flashcardsHistory} onClose={() => setShowFlashcards(false)} />
+      )}
+
+      <ChatOverlay isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} noteTitle={title} noteContent={content} />
     </>
   );
 }

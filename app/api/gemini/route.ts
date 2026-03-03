@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 
 // Mengambil API Key dari environment variable
-const apiKey = process.env.GEMINI_API_KEY;
+const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
 if (!apiKey) {
   console.error("GEMINI_API_KEY is not set in environment variables");
@@ -88,7 +88,6 @@ export async function POST(req: Request) {
         generateParams = [finalPrompt];
         break;
 
-      // --- PERBAIKAN FITUR AI PROJECT BREAKDOWN ---
       case "project-breakdown":
         if (!content) return NextResponse.json({ error: "Content is required" }, { status: 400 });
         finalPrompt = `
@@ -116,11 +115,8 @@ export async function POST(req: Request) {
           - 'recommendedDueDate' hitung perkiraan waktu penyelesaian logis dari tanggal hari ini. Kosongkan jika ini adalah rutinitas tanpa tenggat akhir.
         `;
         generateParams = [finalPrompt];
-        
-        // Memaksa model untuk membalas dengan struktur JSON Murni
         generationConfig = { responseMimeType: "application/json" };
         break;
-      // -----------------------------------------
 
       case "weekly-review":
         if (!content) return NextResponse.json({ error: "Content is required" }, { status: 400 });
@@ -215,6 +211,72 @@ export async function POST(req: Request) {
         };
         generateParams = [finalPrompt, imagePart];
         break;
+
+      case "generate-flashcards":
+        if (!content) return NextResponse.json({ error: "Content is required" }, { status: 400 });
+        finalPrompt = `
+          Kamu adalah AI pembuat Flashcard pembelajaran. Baca materi/catatan berikut dan buatkan kartu flashcard tanya-jawab untuk membantu pengguna menghafal konsep-konsep penting di dalamnya.
+          
+          Berikan balasan HANYA dalam format JSON murni. Strukturnya WAJIB array of objects seperti ini:
+          [
+            {
+              "front": "Pertanyaan, istilah, atau konsep singkat (Sisi Depan)",
+              "back": "Jawaban, definisi, atau penjelasan detail (Sisi Belakang)"
+            }
+          ]
+          
+          Buatlah antara 5 hingga 10 flashcard tergantung panjang materi. Pastikan jawabannya akurat sesuai teks.
+          
+          Catatan Materi:
+          "${content}"
+        `;
+        generateParams = [finalPrompt];
+        generationConfig = { responseMimeType: "application/json" };
+        break;
+
+      // =====================================================================
+      // --- FASE 5: RAG ENGINE (CLIENT-SIDE RAG) ---
+      // =====================================================================
+      case "rag-select-docs":
+        if (!userPrompt || !context) return NextResponse.json({ error: "Prompt and context are required" }, { status: 400 });
+        
+        finalPrompt = `Kamu adalah asisten mesin pencari catatan pintar.
+        Pengguna bertanya: "${userPrompt}"
+        
+        Tugasmu menganalisis daftar catatan di bawah ini (yang berisi ID, Judul, Tanggal, Tag, dan Cuplikan).
+        Pilih HINGGA 5 ID catatan yang informasinya PALING MUNGKIN bisa menjawab pertanyaan pengguna atau berhubungan dengan topik yang ditanyakan.
+        
+        TIPS CERDAS:
+        - Jika pengguna bertanya "catatan terbaruku" atau "terakhir kali", perhatikan atribut "Tanggal" dan pilih catatan yang tanggalnya paling baru.
+        - Pahami sinonim. Jika pengguna bertanya tentang "bisnis", cari juga tag atau cuplikan yang mengandung "uang", "proyek", "startup".
+        
+        Balas HANYA dengan array JSON murni berisi string ID catatan. Contoh: ["id_1", "id_2"]. 
+        Jika benar-benar tidak ada yang relevan, balas dengan array kosong []. Jangan tambahkan teks apa pun selain JSON.
+        
+        Daftar Catatan:\n${context}`;
+        
+        generationConfig = { responseMimeType: "application/json" };
+        generateParams = [finalPrompt];
+        break;
+
+      case "rag-answer":
+        if (!userPrompt || !context) return NextResponse.json({ error: "Prompt and context are required" }, { status: 400 });
+        
+        finalPrompt = `Kamu adalah Nexa, asisten cerdas pengelola catatan. Jawablah pertanyaan pengguna berikut:
+        "${userPrompt}"
+        
+        Referensi Dokumen Catatan Pengguna:
+        \n${context}
+        
+        Aturan Menjawab:
+        1. Gunakan bahasa yang santai, bersahabat, dan langsung ke intinya. Format jawabanmu menggunakan HTML dasar (seperti <strong>, <ul>, <br>) agar rapi.
+        2. Jika Referensi Dokumen berisi peringatan "SISTEM: Pengguna tidak memiliki catatan...", jawablah pertanyaannya menggunakan pengetahuan umummu, TAPI katakan dengan jelas bahwa informasi ini tidak ada di dalam catatan mereka.
+        3. PENTING: Jika kamu mengutip atau merangkum informasi dari Referensi Dokumen, kamu WAJIB menyertakan tautan ke catatan aslinya menggunakan format: [[Judul Catatan Aslinya]].
+        Contoh: "Di catatan [[Ide Usaha 2026]], kamu menyebutkan bahwa..."`;
+        
+        generateParams = [finalPrompt];
+        break;
+      // =====================================================================
 
       default:
         return NextResponse.json(
