@@ -33,8 +33,8 @@ export interface NoteData {
   isCompleted?: boolean;
   subTasks?: SubTask[]; 
   status?: 'todo' | 'in-progress' | 'done'; 
-  // FIX: Ubah dari string tunggal menjadi array string
   mindmapCode?: string[] | null; 
+  parentId?: string | null; // <-- TAMBAHAN UNTUK RELASI PARENT-ANAK
   userId: string;
   createdAt?: any;
   updatedAt?: any;
@@ -54,8 +54,8 @@ export interface HabitData {
 export interface FocusSession {
   id?: string;
   userId: string;
-  durationMinutes: number; // Durasi fokus dalam menit (biasanya 25)
-  completedAt: string; // Tanggal dan waktu diselesaikan (ISO String)
+  durationMinutes: number; 
+  completedAt: string; 
 }
 // -------------------------------------------------
 
@@ -185,7 +185,7 @@ export const addFocusSession = async (data: FocusSession) => {
   try {
     const docRef = await addDoc(collection(db, "focus_sessions"), {
       ...data,
-      timestamp: serverTimestamp(), // Untuk sorting di Firestore jika perlu
+      timestamp: serverTimestamp(), 
     });
     return docRef.id;
   } catch (error) {
@@ -196,12 +196,9 @@ export const addFocusSession = async (data: FocusSession) => {
 
 export const getUserFocusSessions = async (userId: string) => {
   try {
-    // Kita ambil semua session user, nanti difilter per minggu di client (frontend)
     const q = query(
       collection(db, "focus_sessions"),
       where("userId", "==", userId)
-      // Idealnya kita orderBy("completedAt", "desc"), tapi butuh index composite di Firestore.
-      // Karena data pomodoro tidak terlalu besar, kita ambil semua dan sort di client saja.
     );
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => ({
@@ -213,4 +210,54 @@ export const getUserFocusSessions = async (userId: string) => {
     throw error;
   }
 };
-// ----------------------------------------
+
+// ============================================================================
+// 🕸️ FASE 1 KNOWLEDGE GRAPH: EKSTRAKSI METADATA DAN LINK (MENGHINDARI PAYLOAD BERAT)
+// ============================================================================
+export interface GraphNodeData {
+  id: string;
+  title: string;
+  tags: string[];
+  links: string[]; // Kumpulan ID dari catatan lain yang di-mention di catatan ini
+  parentId?: string | null; // <-- TAMBAHAN: Pastikan Graph menerima data ini
+}
+
+export const getUserNotesGraphData = async (userId: string): Promise<GraphNodeData[]> => {
+  try {
+    const q = query(
+      collection(db, "notes"),
+      where("userId", "==", userId)
+      // Kita tidak butuh orderBy di sini karena graph akan dirender menyebar
+    );
+    
+    const querySnapshot = await getDocs(q);
+    
+    return querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      const content = data.content || "";
+      
+      // Ekstrak semua ID mention dari HTML Tiptap
+      const links: string[] = [];
+      const regex = /data-id="([^"]+)"/g;
+      let match;
+      
+      while ((match = regex.exec(content)) !== null) {
+        const targetId = match[1];
+        if (targetId !== doc.id && !links.includes(targetId)) {
+          links.push(targetId);
+        }
+      }
+
+      return {
+        id: doc.id,
+        title: data.title || "Tanpa Judul",
+        tags: data.tags || [],
+        links: links,
+        parentId: data.parentId || null // <-- TAMBAHAN: Tarik parentId dari database
+      };
+    });
+  } catch (error) {
+    console.error("Error getting notes graph data: ", error);
+    throw error;
+  }
+};

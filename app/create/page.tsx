@@ -10,11 +10,15 @@ import {
   Loader2, Save, ArrowLeft,
   Tag as TagIcon, Lock, Unlock, 
   Sparkles, X, Download, FileText, File, Printer,
-  Camera, Image as ImageIcon, Network
+  Camera, Image as ImageIcon, Network, FolderTree
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
 import { useGemini } from "@/hooks/use-gemini"; 
+import { useNoteForm } from "@/hooks/use-note-form";
+import { useExport } from "@/hooks/use-export";
+import { useNoteAi } from "@/hooks/use-note-ai"; // <-- IMPORT HOOK AI
+
 import { AiToolbar } from "@/components/notes/ai-toolbar";
 import { ChatOverlay } from "@/components/notes/chat-overlay";
 import { MindMapViewer } from "@/components/notes/mindmap-viewer";
@@ -22,46 +26,44 @@ import { MindMapViewer } from "@/components/notes/mindmap-viewer";
 export default function CreateNotePage() {
   const { user } = useAuth();
   const router = useRouter();
-  const { showAlert, showQuotaAlert } = useModal(); 
+  const { showAlert } = useModal(); 
   const { callAI } = useGemini(); 
   
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  
-  // State Tags & Privasi
-  const [tags, setTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState("");
-  const [isHidden, setIsHidden] = useState(false); 
-  
-  // State UI Ekspor & Loading
-  const [showExportMenu, setShowExportMenu] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [editorKey, setEditorKey] = useState(0); 
+  // 1. STATE FORM (Judul, Konten, Tag)
+  const {
+    title, setTitle, content, setContent, tags, setTags,
+    tagInput, setTagInput, isHidden, setIsHidden,
+    parentId, setParentId, // <-- AMBIL STATE PARENT DARI HOOK
+    editorKey, forceRenderEditor, handleKeyDownTag, removeTag
+  } = useNoteForm();
 
-  // Referensi & State Hardware (Kamera/Voice)
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-  const galleryInputRef = useRef<HTMLInputElement>(null);
-  const [isScanning, setIsScanning] = useState(false);
-  
-  // --- STATE SMART VOICE MEMOS ---
-  const [isRecording, setIsRecording] = useState(false);
-  const [isAnalyzingVoice, setIsAnalyzingVoice] = useState(false);
-  // -------------------------------
+  // 2. STATE EKSPOR DOKUMEN
+  const {
+    showExportMenu, setShowExportMenu,
+    handleExportTXT, handleExportDOC, handleExportPDF
+  } = useExport(title, content);
 
-  // --- STATE AI (Menyederhanakan kontrol UI saja) ---
-  const [isSummarizing, setIsSummarizing] = useState(false);
-  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
-  const [isFormatting, setIsFormatting] = useState(false); 
-  const [aiSummary, setAiSummary] = useState<string | null>(null);
-  
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [isGeneratingMindMap, setIsGeneratingMindMap] = useState(false);
-  
-  // FIX: Ubah menjadi array untuk menampung riwayat Mind Map
+  // 3. STATE MIND MAP
   const [mindMapHistory, setMindMapHistory] = useState<string[]>([]);
   const [showMindMap, setShowMindMap] = useState(false); 
 
+  // 4. STATE AI & HARDWARE (Semua disedot ke Hook ini!)
+  const {
+    isSummarizing, isGeneratingTags, isFormatting, isGeneratingMindMap,
+    isScanning, isAnalyzingVoice, isRecording, aiSummary, setAiSummary,
+    handleAutoFormat, handleSummarize, handleGenerateTags, handleGenerateMindMap,
+    handleImageUpload, handleVoiceRecord
+  } = useNoteAi({
+    title, setTitle, content, setContent, tags, setTags, forceRenderEditor,
+    mindMapHistory, setMindMapHistory, setShowMindMap
+  });
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [availableNotes, setAvailableNotes] = useState<{ id: string; title: string }[]>([]);
+
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (user) {
@@ -75,301 +77,7 @@ export default function CreateNotePage() {
     }
   }, [user]);
 
-  const handleKeyDownTag = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && tagInput.trim() !== '') {
-      e.preventDefault();
-      const newTag = tagInput.trim().replace(/^#/, '');
-      if (!tags.includes(newTag)) {
-        setTags([...tags, newTag]);
-      }
-      setTagInput('');
-    }
-  };
-
-  const removeTag = (tagToRemove: string) => {
-    setTags(tags.filter(t => t !== tagToRemove));
-  };
-
-  const handleExportTXT = () => {
-    const plainText = content.replace(/<[^>]+>/g, '\n').replace(/\n\s*\n/g, '\n\n').trim();
-    const textToExport = `JUDUL: ${title || 'Tanpa Judul'}\n\n${plainText}`;
-    const blob = new Blob([textToExport], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${title || "Catatan_Nexa"}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setShowExportMenu(false);
-  };
-
-  const handleExportDOC = () => {
-    const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Catatan Nexa</title></head><body>";
-    const footer = "</body></html>";
-    const sourceHTML = header + `<h1>${title || "Tanpa Judul"}</h1>` + content + footer;
-    const blob = new Blob(['\ufeff', sourceHTML], { type: "application/msword" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${title || "Catatan_Nexa"}.doc`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setShowExportMenu(false);
-  };
-
-  const handleExportPDF = () => {
-    setShowExportMenu(false);
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
-
-    const iframeDoc = iframe.contentWindow?.document;
-    if (!iframeDoc) {
-      showAlert("Error Ekspor", "Gagal memuat sistem pembuatan PDF.");
-      return;
-    }
-
-    iframeDoc.open();
-    iframeDoc.write(`
-      <html>
-        <head>
-          <title>${title || "Catatan_Nexa"}</title>
-          <style>
-            body { font-family: sans-serif; padding: 40px; color: #111; line-height: 1.6; }
-            h1 { font-size: 32px; font-weight: bold; border-bottom: 2px solid #eaeaea; padding-bottom: 12px; margin-bottom: 24px; }
-            p { margin-bottom: 1em; }
-            ul { list-style-type: disc; margin-left: 24px; margin-bottom: 1em; }
-            ol { list-style-type: decimal; margin-left: 24px; margin-bottom: 1em; }
-          </style>
-        </head>
-        <body>
-          <h1>${title || 'Tanpa Judul'}</h1>
-          <div>${content}</div>
-        </body>
-      </html>
-    `);
-    iframeDoc.close();
-
-    iframe.contentWindow?.focus();
-    setTimeout(() => {
-      iframe.contentWindow?.print();
-      setTimeout(() => document.body.removeChild(iframe), 1000);
-    }, 250);
-  };
-
-  const handleAutoFormat = async () => {
-    setIsFormatting(true);
-    try {
-      const result = await callAI({ action: "auto-format", content: content });
-      if (result) {
-        const cleanHtml = result.replace(/```html/g, '').replace(/```/g, '').trim();
-        setContent(cleanHtml);
-        setEditorKey(prev => prev + 1); 
-        showAlert("Berhasil! ✨", "Teks acakmu sudah disulap menjadi rapi dan terstruktur.");
-      }
-    } catch (error: any) {
-       if (error.message === "QUOTA_EXCEEDED") showQuotaAlert();
-       else console.error("Gagal merapikan teks", error);
-    } finally {
-      setIsFormatting(false);
-    }
-  };
-
-  const handleSummarize = async () => {
-    setIsSummarizing(true);
-    try {
-      const plainText = content.replace(/<[^>]+>/g, ' ').trim();
-      const result = await callAI({ action: "summarize", content: `Judul: ${title}\n\nIsi: ${plainText}` });
-      setAiSummary(result);
-    } catch (error: any) {
-      if (error.message === "QUOTA_EXCEEDED") showQuotaAlert();
-      else console.error("Gagal merangkum", error);
-    } finally {
-      setIsSummarizing(false);
-    }
-  };
-
-  const handleGenerateTags = async () => {
-    setIsGeneratingTags(true);
-    try {
-      const plainText = content.replace(/<[^>]+>/g, ' ').trim();
-      const result = await callAI({ action: "auto-tag", content: `Judul: ${title}\n\nIsi: ${plainText}` });
-      if (result) {
-        const newTags = result.split(',').map((t: string) => t.trim().replace(/^#/, '')).filter(Boolean);
-        const uniqueTags = Array.from(new Set([...tags, ...newTags]));
-        setTags(uniqueTags);
-      }
-    } catch (error: any) {
-       if (error.message === "QUOTA_EXCEEDED") showQuotaAlert();
-       else console.error("Gagal menebak tag", error);
-    } finally {
-      setIsGeneratingTags(false);
-    }
-  };
-
-  const handleGenerateMindMap = async () => {
-    // FIX: Kalau dipencet dari Toolbar AI, dia akan SELALU generate versi baru (tidak di-return)
-    setIsGeneratingMindMap(true);
-    try {
-      const plainText = content.replace(/<[^>]+>/g, ' ').trim();
-      const result = await callAI({ action: "mindmap", content: `Judul: ${title}\n\nIsi: ${plainText}` });
-      if (result) {
-        const cleanCode = result.replace(/```mermaid/g, '').replace(/```/g, '').trim();
-        // Tambahkan versi baru ke depan array
-        setMindMapHistory(prev => [cleanCode, ...prev]);
-        setShowMindMap(true); 
-      }
-    } catch (error: any) {
-      if (error.message === "QUOTA_EXCEEDED") showQuotaAlert();
-      else console.error("Gagal membuat mind map", error);
-    } finally {
-      setIsGeneratingMindMap(false);
-    }
-  };
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    e.target.value = ""; 
-    setIsScanning(true);
-
-    try {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64String = (reader.result as string).split(',')[1];
-        try {
-          const extractedHtml = await callAI({ action: "ocr", imageBase64: base64String, mimeType: file.type });
-          const cleanHtml = extractedHtml?.replace(/```html/g, '').replace(/```/g, '').trim();
-
-          if (!cleanHtml || cleanHtml === "") {
-            showAlert("Info AI", "AI tidak menemukan teks pada gambar ini.");
-          } else {
-            setContent((prev) => prev + (prev ? "<br><br>" : "") + cleanHtml);
-            setEditorKey(prev => prev + 1); 
-          }
-        } catch (apiError: any) {
-          if (apiError.message === "QUOTA_EXCEEDED") showQuotaAlert();
-          else console.error("Gagal scan OCR", apiError);
-        } finally {
-          setIsScanning(false);
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      setIsScanning(false);
-      showAlert("Error File", "Gagal membaca file gambar.");
-    }
-  };
-
-  // --- LOGIKA SMART VOICE MEMO ---
-  const handleVoiceRecord = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      showAlert("Tidak Mendukung", "Maaf, browser kamu tidak mendukung fitur Suara ke Teks. Coba gunakan Google Chrome.");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'id-ID'; 
-    recognition.continuous = true; 
-    recognition.interimResults = false;
-
-    let finalTranscript = "";
-
-    recognition.onstart = () => setIsRecording(true);
-    
-    recognition.onresult = (event: any) => {
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript + " ";
-        }
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error("Speech error", event.error);
-      showAlert("Gagal Mendengar", "Gagal mengenali suara. Pastikan kamu sudah memberikan izin mikrofon di browser.");
-      setIsRecording(false);
-    };
-
-    recognition.onend = async () => {
-      setIsRecording(false);
-      
-      if (!finalTranscript.trim()) return;
-
-      setIsAnalyzingVoice(true);
-      try {
-        const result = await callAI({
-          action: "analyze-voice-memo",
-          content: finalTranscript.trim()
-        });
-
-        const jsonMatch = result.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          
-          if (!title && parsed.title) setTitle(parsed.title);
-          
-          let aiContentHtml = `
-            <h3>🎙️ Catatan Suara Pintar</h3>
-            <p><em>${parsed.summary}</em></p>
-            ${parsed.formattedText}
-          `;
-
-          if (parsed.actionItems && parsed.actionItems.length > 0) {
-            aiContentHtml += `
-              <br/>
-              <h4>✅ Action Items:</h4>
-              <ul data-type="taskList">
-                ${parsed.actionItems.map((task: string) => `
-                  <li data-type="taskItem" data-checked="false">
-                    <label><input type="checkbox"><span></span></label>
-                    <div><p>${task}</p></div>
-                  </li>
-                `).join('')}
-              </ul>
-            `;
-          }
-
-          setContent((prev) => prev + (prev ? "<br><br>" : "") + aiContentHtml);
-          setEditorKey(prev => prev + 1);
-          showAlert("Berhasil!", "Rekaman suara berhasil dirapikan dan dianalisis oleh AI.");
-        } else {
-          throw new Error("Invalid JSON from AI");
-        }
-
-      } catch (error: any) {
-        console.error("Gagal menganalisis suara:", error);
-        
-        setContent((prev) => prev + (prev ? "<br><br>" : "") + `<p>🎙️ <em>Transkripsi Mentah (AI Limit):</em><br/>${finalTranscript.trim()}</p>`);
-        setEditorKey(prev => prev + 1);
-        
-        if (error.message === "QUOTA_EXCEEDED") {
-          showQuotaAlert();
-        } else {
-          showAlert("AI Sibuk", "AI gagal merapikan rekamanmu. Jangan khawatir, teks aslinya tetap kami simpan di editor.");
-        }
-      } finally {
-        setIsAnalyzingVoice(false);
-      }
-    };
-
-    recognition.start();
-    
-    const stopRecordingManual = () => {
-      recognition.stop();
-    };
-
-    (window as any).stopNexaRecording = stopRecordingManual;
-  };
-  // ------------------------------------
-
+  // Otomatis membuka kamera/suara berdasarkan URL param (dari Quick Actions)
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     const mode = searchParams.get('mode');
@@ -382,6 +90,7 @@ export default function CreateNotePage() {
         else if (mode === 'voice') handleVoiceRecord();
       }, 500);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); 
 
   const handleSave = async () => {
@@ -410,11 +119,12 @@ export default function CreateNotePage() {
         isTodo: false, 
         dueDate: null, 
         isHidden: isHidden,
-        mindmapCode: mindMapHistory, // FIX: Simpan array history
+        mindmapCode: mindMapHistory, 
+        parentId: parentId, // <-- SIMPAN PARENT ID KE DATABASE
         userId: user.uid,
       } as any);
       
-      router.push("/");
+      router.push("/notes");
     } catch (error) {
       console.error("Gagal menyimpan:", error);
       showAlert("Gagal", "Terjadi kesalahan. Gagal menyimpan catatan.");
@@ -472,6 +182,21 @@ export default function CreateNotePage() {
               </span>
             ))}
             <input type="text" placeholder={tags.length === 0 ? "Ketik tag lalu Enter..." : "+ Tambah tag..."} value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={handleKeyDownTag} className="bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground focus:ring-0 min-w-[120px]" />
+          </div>
+
+          {/* --- DROPDOWN PILIH INDUK (PARENT) CATATAN --- */}
+          <div className="flex items-center gap-2 bg-muted/30 p-1.5 rounded-xl border border-border/50 print:hidden w-full md:w-fit">
+            <FolderTree className="w-4 h-4 text-muted-foreground ml-2 shrink-0" />
+            <select
+              value={parentId || ""}
+              onChange={(e) => setParentId(e.target.value || null)}
+              className="bg-transparent text-sm text-foreground font-medium outline-none border-none focus:ring-0 cursor-pointer pr-8 py-1"
+            >
+              <option value="" className="bg-background">Catatan Utama (Bukan Sub-Catatan)</option>
+              {availableNotes.map(n => (
+                <option key={n.id} value={n.id} className="bg-background">Induk: {n.title}</option>
+              ))}
+            </select>
           </div>
 
           {/* --- TOOLBAR 1: Privasi & Input Media --- */}
@@ -570,7 +295,6 @@ export default function CreateNotePage() {
         </div>
       </div>
 
-      {/* FIX: Render MindMapViewer dan lempar prop history */}
       {showMindMap && mindMapHistory.length > 0 && (
         <MindMapViewer history={mindMapHistory} onClose={() => setShowMindMap(false)} />
       )}

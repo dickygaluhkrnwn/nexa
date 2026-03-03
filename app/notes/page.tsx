@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { 
   Loader2, Trash2, Search, FileText, 
   LockKeyhole, KeyRound, LayoutGrid, List, 
-  ArrowDownAZ, ArrowDownZA, Clock, ArrowUpCircle, Filter, Pin, MoreVertical, Network
+  ArrowDownAZ, ArrowDownZA, Clock, ArrowUpCircle, 
+  Filter, Pin, MoreVertical, Network, 
+  ChevronRight, ChevronDown, CornerDownRight
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getUserNotes, deleteNote, updateNote, NoteData } from "@/lib/notes-service";
@@ -15,7 +17,8 @@ import { useRouter } from "next/navigation";
 import { useModal } from "@/hooks/use-modal"; 
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"; 
 
-type ExtNoteData = NoteData & { id: string; isHidden?: boolean; isPinned?: boolean };
+type ExtNoteData = NoteData & { id: string; isHidden?: boolean; isPinned?: boolean; parentId?: string | null };
+type TreeNodeData = ExtNoteData & { depth: number; hasChildren: boolean };
 
 export default function NotesPage() {
   const { user, loading: authLoading } = useAuth();
@@ -31,13 +34,16 @@ export default function NotesPage() {
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "az" | "za">("newest");
   const [showSortMenu, setShowSortMenu] = useState(false);
 
+  // State Fitur Folder Tree
+  const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
+
   // State Fitur Brankas
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const [pinInput, setPinInput] = useState("");
   const [showPinModal, setShowPinModal] = useState(false);
   const [correctPin, setCorrectPin] = useState<string | null>(null);
 
-  // State Options Menu (Muncul saat card ditahan)
+  // State Options Menu
   const [activeNoteOptions, setActiveNoteOptions] = useState<ExtNoteData | null>(null);
 
   const fetchData = async () => {
@@ -80,14 +86,10 @@ export default function NotesPage() {
 
   const handleTogglePin = async (id: string, currentPinStatus: boolean | undefined) => {
     const newStatus = !currentPinStatus;
-    
-    // Optimistic Update
     setNotes(notes.map(n => n.id === id ? { ...n, isPinned: newStatus } : n));
-    
     try {
       await updateNote(id, { isPinned: newStatus } as any);
     } catch (error) {
-      console.error("Gagal mengubah status pin:", error);
       showAlert("Gagal", "Terjadi kesalahan saat menyematkan catatan.");
       setNotes(notes.map(n => n.id === id ? { ...n, isPinned: currentPinStatus } : n));
     }
@@ -110,39 +112,33 @@ export default function NotesPage() {
     }
   };
 
-  // --- LOGIKA DRAG AND DROP ---
   const onDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId } = result;
-
-    if (!destination) return;
-    if (destination.droppableId === source.droppableId) return;
+    if (!destination || destination.droppableId === source.droppableId) return;
 
     const isPinnedTarget = destination.droppableId === 'pinned';
-    
-    // Optimistic Update di UI lokal
     setNotes(notes.map(n => n.id === draggableId ? { ...n, isPinned: isPinnedTarget } : n));
 
     try {
       await updateNote(draggableId, { isPinned: isPinnedTarget } as any);
     } catch (error) {
       showAlert("Gagal", "Gagal memindahkan catatan.");
-      fetchData(); // Rollback jika gagal
+      fetchData(); 
     }
   };
 
-  // Event Context Menu (Tahan di HP / Klik Kanan di PC)
   const handleContextMenu = (e: React.MouseEvent, note: ExtNoteData) => {
     e.preventDefault();
     e.stopPropagation();
     setActiveNoteOptions(note);
   };
 
+  const toggleExpand = (id: string) => {
+    setExpandedNodes(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
   if (authLoading || loadingNotes) {
-    return (
-      <div className="flex justify-center items-center min-h-[60vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
+    return <div className="flex justify-center items-center min-h-[60vh]"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   }
 
   if (!user) {
@@ -154,90 +150,137 @@ export default function NotesPage() {
     );
   }
 
-  // 1. Ekstrak Semua Tag Unik untuk Ruang Saat Ini (PERBAIKAN: Filter out isTodo)
+  // 1. Ekstrak Semua Tag Unik 
   const availableNotes = notes.filter(n => !n.isTodo && (isVaultOpen ? n.isHidden : !n.isHidden));
   const allTags = Array.from(new Set(availableNotes.flatMap(n => n.tags || [])));
 
-  // 2. Logika Pemrosesan (Filter -> Search -> Sort)
+  // 2. Filter & Pencarian Dasar
   let displayedNotes = [...availableNotes].filter(note => {
     if (selectedTag && (!note.tags || !note.tags.includes(selectedTag))) return false;
-    
     const query = searchQuery.toLowerCase();
-    const titleMatch = note.title?.toLowerCase().includes(query);
-    const contentMatch = note.content?.toLowerCase().includes(query);
-    const tagsMatch = note.tags?.some(tag => tag.toLowerCase().includes(query));
-    
-    return titleMatch || contentMatch || tagsMatch;
+    return (note.title?.toLowerCase().includes(query) || note.content?.toLowerCase().includes(query) || note.tags?.some(tag => tag.toLowerCase().includes(query)));
   });
 
-  const applySort = (arr: any[]) => {
+  const applySort = (arr: ExtNoteData[]) => {
     let sorted = [...arr];
-    if (sortBy === "oldest") {
-      sorted.reverse();
-    } else if (sortBy === "az") {
-      sorted.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
-    } else if (sortBy === "za") {
-      sorted.sort((a, b) => (b.title || "").localeCompare(a.title || ""));
-    }
+    if (sortBy === "oldest") sorted.reverse();
+    else if (sortBy === "az") sorted.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+    else if (sortBy === "za") sorted.sort((a, b) => (b.title || "").localeCompare(a.title || ""));
     return sorted;
   };
 
-  // Pisahkan untuk Drag & Drop Zones
-  let pinnedNotes = applySort(displayedNotes.filter(n => n.isPinned));
-  let unpinnedNotes = applySort(displayedNotes.filter(n => !n.isPinned));
+  // 3. LOGIKA FOLDER TREE (REKURSIF)
+  const generateTreeList = (notesList: ExtNoteData[]): TreeNodeData[] => {
+    const flatList: TreeNodeData[] = [];
+    
+    // Akar (Root): Catatan yang tidak punya parentId, ATAU parentId-nya tidak ikut tersaring/tidak ada di notesList
+    const roots = notesList.filter(n => !n.parentId || !notesList.some(parent => parent.id === n.parentId));
 
-  // Fungsi Helper untuk Merender Card Catatan (Draggable)
-  const renderNoteCard = (note: ExtNoteData, index: number) => (
-    <Draggable key={note.id} draggableId={note.id} index={index}>
-      {(provided, snapshot) => (
-        <div
-          ref={provided.innerRef}
-          {...provided.draggableProps}
-          {...provided.dragHandleProps}
-          style={{
-            ...provided.draggableProps.style,
-            opacity: snapshot.isDragging ? 0.9 : 1,
-            transform: snapshot.isDragging ? `${provided.draggableProps.style?.transform} scale(1.02)` : provided.draggableProps.style?.transform
-          }}
-          className={`relative group bg-card border rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 pointer-events-auto select-none ${
-            note.isPinned ? 'border-primary/50 shadow-sm' : (isVaultOpen ? 'border-purple-500/30 hover:border-purple-500/50' : 'border-border hover:border-primary/30')
-          }`}
-          onClick={() => router.push(`/edit/${note.id}`)}
-          onContextMenu={(e) => handleContextMenu(e, note)}
-        >
-          <div className="block w-full h-full cursor-pointer p-4">
-            <div className="flex items-start justify-between gap-2">
-              <h4 className={`font-bold text-foreground mb-1 flex items-start gap-2 line-clamp-2 ${viewMode === 'grid' ? 'text-sm' : 'text-base'}`}>
-                {isVaultOpen && <LockKeyhole className="w-3.5 h-3.5 text-purple-500 shrink-0 mt-1" />}
-                {note.title || "Tanpa Judul"}
-              </h4>
-              <button 
-                onClick={(e) => { e.stopPropagation(); setActiveNoteOptions(note); }}
-                className="p-1.5 -mr-2 -mt-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors shrink-0"
-              >
-                <MoreVertical className="w-4 h-4" />
-              </button>
-            </div>
-            
-            {note.tags && note.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-2">
-                {note.tags.slice(0, 3).map((tag, i) => (
-                  <span key={i} className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] rounded-md font-medium truncate max-w-full">
-                    #{tag}
-                  </span>
-                ))}
-                {note.tags.length > 3 && (
-                  <span className="px-1 py-0.5 text-muted-foreground text-[10px] font-medium">
-                    +{note.tags.length - 3}
-                  </span>
-                )}
+    const buildNode = (node: ExtNoteData, depth: number) => {
+      const children = notesList.filter(n => n.parentId === node.id);
+      const hasChildren = children.length > 0;
+      flatList.push({ ...node, depth, hasChildren });
+
+      // Auto-expand jika sedang mencari sesuatu, jika tidak ikuti state expandedNodes
+      const isExpanded = expandedNodes[node.id] || searchQuery.trim() !== "";
+
+      if (hasChildren && isExpanded) {
+        const sortedChildren = applySort(children);
+        sortedChildren.forEach(child => buildNode(child, depth + 1));
+      }
+    };
+
+    const sortedRoots = applySort(roots);
+    sortedRoots.forEach(root => buildNode(root, 0));
+
+    return flatList;
+  };
+
+  // Pisahkan & Bangun Pohon untuk Pinned dan Unpinned
+  const pinnedNotes = applySort(displayedNotes.filter(n => n.isPinned));
+  const unpinnedNotes = applySort(displayedNotes.filter(n => !n.isPinned));
+
+  const treePinnedNotes = generateTreeList(pinnedNotes);
+  const treeUnpinnedNotes = generateTreeList(unpinnedNotes);
+
+  // 4. Render UI Kartu Catatan
+  const renderNoteCard = (note: TreeNodeData, index: number) => {
+    const isSearching = searchQuery.trim() !== "";
+    const isExpanded = expandedNodes[note.id] || isSearching;
+
+    return (
+      <Draggable key={note.id} draggableId={note.id} index={index}>
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.draggableProps}
+            {...provided.dragHandleProps}
+            style={{
+              ...provided.draggableProps.style,
+              opacity: snapshot.isDragging ? 0.9 : 1,
+              transform: snapshot.isDragging ? `${provided.draggableProps.style?.transform} scale(1.02)` : provided.draggableProps.style?.transform,
+              // Indentasi Berdasarkan Kedalaman (Depth)
+              marginLeft: note.depth > 0 ? `${note.depth * (viewMode === 'grid' ? 1 : 2)}rem` : '0',
+            }}
+            className={`relative group bg-card border rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 pointer-events-auto select-none ${
+              note.isPinned ? 'border-primary/50 shadow-sm' : (isVaultOpen ? 'border-purple-500/30 hover:border-purple-500/50' : 'border-border hover:border-primary/30')
+            } ${note.depth > 0 && viewMode === 'list' ? 'border-l-4 border-l-primary/30' : ''}`}
+            onClick={() => router.push(`/edit/${note.id}`)}
+            onContextMenu={(e) => handleContextMenu(e, note)}
+          >
+            <div className="block w-full h-full cursor-pointer p-4">
+              <div className="flex items-start justify-between gap-2">
+                
+                {/* Judul & Indikator Tree */}
+                <div className="flex items-start gap-2 overflow-hidden">
+                  {/* Tombol Expand/Collapse (Hanya jika punya anak) */}
+                  {note.hasChildren ? (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); toggleExpand(note.id); }}
+                      className="mt-0.5 p-0.5 -ml-1 rounded-md hover:bg-muted text-muted-foreground transition-colors shrink-0"
+                      title={isExpanded ? "Tutup Sub-Catatan" : "Buka Sub-Catatan"}
+                    >
+                      {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    </button>
+                  ) : note.depth > 0 ? (
+                    // Ikon siku untuk anak yang tidak punya anak lagi (opsional, untuk estetika list view)
+                    <CornerDownRight className="w-3.5 h-3.5 mt-1.5 text-muted-foreground/40 shrink-0" />
+                  ) : null}
+
+                  <h4 className={`font-bold text-foreground mb-1 flex items-start gap-2 line-clamp-2 ${viewMode === 'grid' ? 'text-sm' : 'text-base'}`}>
+                    {isVaultOpen && <LockKeyhole className="w-3.5 h-3.5 text-purple-500 shrink-0 mt-1" />}
+                    {note.title || "Tanpa Judul"}
+                  </h4>
+                </div>
+
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setActiveNoteOptions(note); }}
+                  className="p-1.5 -mr-2 -mt-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors shrink-0"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </button>
               </div>
-            )}
+              
+              {note.tags && note.tags.length > 0 && (
+                <div className={`flex flex-wrap gap-1.5 mt-2 ${note.hasChildren || note.depth > 0 ? 'ml-6' : ''}`}>
+                  {note.tags.slice(0, 3).map((tag, i) => (
+                    <span key={i} className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] rounded-md font-medium truncate max-w-full">
+                      #{tag}
+                    </span>
+                  ))}
+                  {note.tags.length > 3 && (
+                    <span className="px-1 py-0.5 text-muted-foreground text-[10px] font-medium">
+                      +{note.tags.length - 3}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
-    </Draggable>
-  );
+        )}
+      </Draggable>
+    );
+  };
 
   return (
     <div className="p-4 pb-24 space-y-6 animate-in fade-in duration-500">
@@ -273,7 +316,7 @@ export default function NotesPage() {
         </Button>
       </div>
 
-      {/* Toolbar Premium: Search, Filter, Sort, View Mode */}
+      {/* Toolbar Premium: Search, Filter, Sort, View Mode, dan Graph */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
@@ -328,15 +371,15 @@ export default function NotesPage() {
             {viewMode === "grid" ? <List className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
           </Button>
 
-          {/* TAMBAHAN: Tombol Navigasi ke Graph */}
+          {/* Tombol Peta Semesta */}
           <Button 
             asChild
             variant="outline" 
-            size="icon" 
-            className="rounded-xl shrink-0 bg-card text-rose-500 border-border hover:bg-rose-500/10 hover:border-rose-500/30 transition-all shadow-sm"
+            className="rounded-xl px-3 md:px-4 bg-gradient-to-r from-rose-500/10 to-purple-500/10 text-rose-500 border-rose-500/20 hover:border-rose-500/50 hover:from-rose-500/20 hover:to-purple-500/20 transition-all shadow-sm relative overflow-hidden group shrink-0"
           >
-            <Link href="/network" title="Lihat Knowledge Graph">
-              <Network className="w-4 h-4" />
+            <Link href="/network" title="Lihat Peta Semesta">
+              <Network className="w-4 h-4 relative z-10 md:mr-2" />
+              <span className="hidden md:inline font-bold text-xs relative z-10">Peta Semesta</span>
             </Link>
           </Button>
         </div>
@@ -386,7 +429,7 @@ export default function NotesPage() {
           <div className="space-y-6">
             
             {/* AREA CATATAN DISEMATKAN */}
-            {pinnedNotes.length > 0 && (
+            {treePinnedNotes.length > 0 && (
               <Droppable droppableId="pinned">
                 {(provided, snapshot) => (
                   <div 
@@ -394,9 +437,9 @@ export default function NotesPage() {
                     {...provided.droppableProps} 
                     className={`transition-all duration-200 ${snapshot.isDraggingOver ? 'bg-primary/5 p-3 -mx-3 rounded-2xl' : ''}`}
                   >
-                    <h2 className="text-sm font-bold text-primary flex items-center gap-2 mb-3"><Pin className="w-4 h-4 fill-primary" /> Disematkan ({pinnedNotes.length})</h2>
+                    <h2 className="text-sm font-bold text-primary flex items-center gap-2 mb-3"><Pin className="w-4 h-4 fill-primary" /> Disematkan ({treePinnedNotes.length})</h2>
                     <div className={viewMode === "grid" ? "grid grid-cols-2 gap-3" : "flex flex-col gap-3"}>
-                      {pinnedNotes.map((note, index) => renderNoteCard(note, index))}
+                      {treePinnedNotes.map((note, index) => renderNoteCard(note, index))}
                     </div>
                     {provided.placeholder}
                   </div>
@@ -405,27 +448,29 @@ export default function NotesPage() {
             )}
 
             {/* AREA CATATAN LAINNYA */}
-            <Droppable droppableId="unpinned">
-              {(provided, snapshot) => (
-                <div 
-                  ref={provided.innerRef} 
-                  {...provided.droppableProps} 
-                  className={`transition-all duration-200 ${snapshot.isDraggingOver ? 'bg-muted/30 p-3 -mx-3 rounded-2xl' : ''}`}
-                >
-                  {pinnedNotes.length > 0 && <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2 mb-3 mt-2">Catatan Lainnya</h2>}
-                  <div className={viewMode === "grid" ? "grid grid-cols-2 gap-3" : "flex flex-col gap-3"}>
-                    {unpinnedNotes.map((note, index) => renderNoteCard(note, index))}
+            {treeUnpinnedNotes.length > 0 && (
+              <Droppable droppableId="unpinned">
+                {(provided, snapshot) => (
+                  <div 
+                    ref={provided.innerRef} 
+                    {...provided.droppableProps} 
+                    className={`transition-all duration-200 ${snapshot.isDraggingOver ? 'bg-muted/30 p-3 -mx-3 rounded-2xl' : ''}`}
+                  >
+                    {treePinnedNotes.length > 0 && <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2 mb-3 mt-2">Catatan Lainnya</h2>}
+                    <div className={viewMode === "grid" ? "grid grid-cols-2 gap-3" : "flex flex-col gap-3"}>
+                      {treeUnpinnedNotes.map((note, index) => renderNoteCard(note, index))}
+                    </div>
+                    {provided.placeholder}
                   </div>
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
+                )}
+              </Droppable>
+            )}
 
           </div>
         </DragDropContext>
       )}
 
-      {/* --- OVERLAY MENU OPSI CATATAN (Muncul saat ditahan / klik titik 3) --- */}
+      {/* --- OVERLAY MENU OPSI CATATAN --- */}
       {activeNoteOptions && (
         <>
           <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm" onClick={() => setActiveNoteOptions(null)}></div>
