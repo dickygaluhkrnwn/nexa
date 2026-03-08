@@ -8,7 +8,8 @@ import {
   ArrowDownAZ, ArrowDownZA, Clock, ArrowUpCircle, 
   Filter, Pin, MoreVertical, Network, 
   ChevronRight, ChevronDown, CornerDownRight,
-  Edit3, X, FileEdit, Lock, ShieldCheck, Inbox
+  Edit3, X, FileEdit, Lock, ShieldCheck, Inbox,
+  Sparkles, Tag as TagIcon // <-- FIX: Import TagIcon ditambahkan di sini
 } from "lucide-react";
 import { useEffect, useState, Suspense } from "react";
 import { getUserNotes, deleteNote, updateNote, NoteData } from "@/lib/notes-service";
@@ -231,36 +232,39 @@ function NotesContent() {
             }}
             className={cn(
               "group relative overflow-hidden transition-all duration-200 pointer-events-auto cursor-pointer select-none",
-              viewMode === 'list' ? "py-2 px-3 mx-2 rounded-lg" : "p-3 border rounded-xl shadow-sm",
-              isSelected ? "bg-primary/10 text-primary" : "hover:bg-muted/60 bg-transparent text-foreground",
-              viewMode === 'grid' && !isSelected ? "bg-card border-border" : "border-transparent",
-              snapshot.isDragging && "shadow-lg scale-105 bg-background border border-border"
+              viewMode === 'list' ? "py-2.5 px-3 mx-2 rounded-xl" : "p-4 border rounded-2xl shadow-sm",
+              isSelected ? "bg-primary/10 text-primary shadow-sm" : "hover:bg-muted/80 bg-transparent text-foreground",
+              viewMode === 'grid' && !isSelected ? "bg-card border-border hover:border-primary/40" : "border-transparent",
+              snapshot.isDragging && "shadow-2xl scale-105 bg-background border border-primary/50 rotate-2"
             )}
             onClick={() => handleNoteClick(note.id)}
             onContextMenu={(e) => handleContextMenu(e, note)}
           >
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex items-start gap-1.5 overflow-hidden flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5 overflow-hidden flex-1">
                 {note.hasChildren ? (
                   <button 
                     onClick={(e) => { e.stopPropagation(); toggleExpand(note.id); }}
-                    className="mt-0.5 p-0.5 rounded-md hover:bg-muted/80 text-muted-foreground transition-colors shrink-0"
+                    className={cn(
+                      "mt-0.5 p-0.5 rounded-md transition-colors shrink-0",
+                      isSelected ? "text-primary hover:bg-primary/20" : "text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
+                    )}
                   >
-                    {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                   </button>
                 ) : note.depth > 0 && viewMode === 'list' ? (
-                  <CornerDownRight className="w-3 h-3 mt-1 text-muted-foreground/40 shrink-0 ml-1" />
+                  <CornerDownRight className="w-3.5 h-3.5 mt-1 text-muted-foreground/40 shrink-0 ml-1" />
                 ) : (
-                  <FileText className={cn("w-3.5 h-3.5 mt-0.5 shrink-0", isSelected ? "text-primary" : "text-muted-foreground/60")} />
+                  <FileText className={cn("w-4 h-4 mt-0.5 shrink-0 transition-colors", isSelected ? "text-primary" : "text-muted-foreground/60 group-hover:text-primary/60")} />
                 )}
 
                 <div className="flex flex-col min-w-0 flex-1">
-                  <h4 className={cn("font-medium truncate text-sm flex items-center gap-1.5", isSelected && "font-bold")}>
-                    {isVaultOpen && <LockKeyhole className="w-3 h-3 text-purple-500 shrink-0" />}
+                  <h4 className={cn("font-semibold truncate text-[13px] md:text-sm flex items-center gap-1.5 transition-colors", isSelected ? "text-primary font-bold" : "text-foreground group-hover:text-primary")}>
+                    {isVaultOpen && <LockKeyhole className="w-3.5 h-3.5 text-purple-500 shrink-0" />}
                     {note.title || "Tanpa Judul"}
                   </h4>
                   {viewMode === 'list' && plainText && (
-                    <p className={cn("text-[11px] truncate mt-0.5", isSelected ? "text-primary/70" : "text-muted-foreground")}>
+                    <p className={cn("text-[11px] truncate mt-1 font-medium transition-colors", isSelected ? "text-primary/70" : "text-muted-foreground")}>
                       {plainText}
                     </p>
                   )}
@@ -269,9 +273,12 @@ function NotesContent() {
 
               <button 
                 onClick={(e) => { e.stopPropagation(); setActiveNoteOptions(note); }}
-                className="p-1 text-muted-foreground hover:text-foreground rounded-md opacity-0 group-hover:opacity-100 lg:opacity-100 shrink-0"
+                className={cn(
+                  "p-1.5 rounded-lg opacity-0 group-hover:opacity-100 lg:opacity-100 shrink-0 transition-colors",
+                  isSelected ? "text-primary hover:bg-primary/20" : "text-muted-foreground hover:text-foreground hover:bg-background shadow-sm border border-transparent hover:border-border"
+                )}
               >
-                <MoreVertical className="w-3.5 h-3.5" />
+                <MoreVertical className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -287,59 +294,66 @@ function NotesContent() {
           LEFT PANE: SIDEBAR LIST (MASTER VIEW)
           ========================================= */}
       <div className={cn(
-        "flex flex-col w-full lg:w-[320px] xl:w-[360px] h-full shrink-0 border-r border-border bg-[#fcfcfc] dark:bg-[#121212] transition-all",
+        "flex flex-col w-full lg:w-[340px] xl:w-[400px] h-full shrink-0 border-r border-border bg-[#fcfcfc] dark:bg-[#0c0c0e] transition-all",
         selectedNoteId ? "hidden lg:flex" : "flex"
       )}>
         
-        {/* Header Sidebar Kiri */}
-        <div className="px-4 py-4 shrink-0 flex flex-col gap-4 border-b border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className={cn("p-1.5 rounded-md", isVaultOpen ? "bg-purple-500/10" : "bg-primary/10")}>
-                {isVaultOpen ? <ShieldCheck className="w-4 h-4 text-purple-600" /> : <Inbox className="w-4 h-4 text-primary" />}
-              </div>
-              <h1 className="text-sm font-bold tracking-tight">
-                {isVaultOpen ? "Brankas Rahasia" : "Semua Catatan"}
+        {/* HERO HEADER KIRI (Dirombak Total) */}
+        <div className="px-5 py-6 shrink-0 flex flex-col gap-5 border-b border-border/50 relative overflow-hidden">
+          {/* Latar Aksen Halus */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-bl-full pointer-events-none blur-2xl" />
+
+          {/* Judul & Tombol Network */}
+          <div className="flex items-start justify-between relative z-10">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-black tracking-tight text-foreground flex items-center gap-2">
+                Workspace
               </h1>
-              <span className="text-[10px] font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full ml-1">
-                {displayedNotes.length}
-              </span>
+              <p className="text-xs font-medium text-muted-foreground mt-1">{displayedNotes.length} dokumen tersimpan</p>
             </div>
-            
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className={cn("w-7 h-7 rounded-md", isVaultOpen ? "text-purple-600 hover:bg-purple-600/10" : "text-muted-foreground hover:bg-muted")}
-              onClick={() => {
-                if (isVaultOpen) { setIsVaultOpen(false); setSelectedTag(null); setSelectedNoteId(null); } 
-                else { setShowPinModal(true); }
-              }}
-              title={isVaultOpen ? "Tutup Brankas" : "Buka Brankas"}
-            >
-              {isVaultOpen ? <LockKeyhole className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+            <Button asChild variant="outline" size="icon" className="rounded-2xl border-border bg-card shadow-sm hover:shadow-md hover:border-primary/50 text-primary transition-all w-11 h-11">
+              <Link href="/network" title="Peta Semesta (Knowledge Graph)">
+                <Network className="w-5 h-5" />
+              </Link>
             </Button>
           </div>
 
+          {/* Toggle Segmented Control (Publik vs Brankas) */}
+          <div className="flex bg-muted/60 p-1.5 rounded-xl border border-border/50 relative z-10 shadow-inner">
+            <button 
+              onClick={() => { setIsVaultOpen(false); setSelectedTag(null); setSelectedNoteId(null); }}
+              className={cn("flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all", !isVaultOpen ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+            >
+              <Inbox className="w-4 h-4" /> Area Publik
+            </button>
+            <button 
+              onClick={() => { if (!isVaultOpen) setShowPinModal(true); }}
+              className={cn("flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all", isVaultOpen ? "bg-purple-600 text-white shadow-sm" : "text-muted-foreground hover:text-purple-500")}
+            >
+              <LockKeyhole className="w-4 h-4" /> Brankas
+            </button>
+          </div>
+
           {/* Search Mobile (Hidden di Desktop karena ada Global Search di Header) */}
-          <div className="relative lg:hidden">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+          <div className="relative lg:hidden mt-2">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
               placeholder="Cari catatan..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 bg-background border border-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all shadow-sm"
+              className="w-full pl-9 pr-4 py-2.5 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all shadow-sm font-medium"
             />
           </div>
 
           {/* Quick Filters / Tags */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex flex-1 items-center gap-1 overflow-x-auto scrollbar-hide snap-x">
+          <div className="flex items-center justify-between gap-3 mt-1">
+            <div className="flex flex-1 items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1 snap-x">
               <button
                 onClick={() => setSelectedTag(null)}
                 className={cn(
-                  "snap-start whitespace-nowrap px-2.5 py-1 text-[10px] font-semibold rounded-md border transition-colors",
-                  selectedTag === null ? "bg-primary/10 border-primary/20 text-primary" : "bg-background border-border text-muted-foreground hover:bg-muted"
+                  "snap-start whitespace-nowrap px-3 py-1.5 text-[11px] font-bold rounded-lg border transition-colors",
+                  selectedTag === null ? "bg-primary text-primary-foreground border-primary shadow-sm" : "bg-background border-border text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
               >
                 Semua
@@ -349,8 +363,8 @@ function NotesContent() {
                   key={tag}
                   onClick={() => setSelectedTag(tag)}
                   className={cn(
-                    "snap-start whitespace-nowrap px-2.5 py-1 text-[10px] font-semibold rounded-md border transition-colors",
-                    selectedTag === tag ? "bg-primary/10 border-primary/20 text-primary" : "bg-background border-border text-muted-foreground hover:bg-muted"
+                    "snap-start whitespace-nowrap px-3 py-1.5 text-[11px] font-bold rounded-lg border transition-colors",
+                    selectedTag === tag ? "bg-primary text-primary-foreground border-primary shadow-sm" : "bg-background border-border text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
                   {tag}
@@ -359,49 +373,54 @@ function NotesContent() {
             </div>
 
             {/* Sort & View Toggles */}
-            <div className="flex items-center gap-0.5 shrink-0">
+            <div className="flex items-center gap-1 shrink-0 bg-background border border-border rounded-xl p-1 shadow-sm">
               <div className="relative">
-                <Button variant="ghost" size="icon" onClick={() => setShowSortMenu(!showSortMenu)} className="w-6 h-6 rounded text-muted-foreground hover:text-foreground">
-                  <Filter className="w-3.5 h-3.5" />
+                <Button variant="ghost" size="icon" onClick={() => setShowSortMenu(!showSortMenu)} className="w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted">
+                  <Filter className="w-4 h-4" />
                 </Button>
                 {showSortMenu && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setShowSortMenu(false)}></div>
-                    <div className="absolute right-0 top-full mt-1 w-40 bg-card border border-border shadow-lg rounded-xl z-50 p-1 animate-in zoom-in-95">
-                      <button onClick={() => { setSortBy("newest"); setShowSortMenu(false); }} className={cn("w-full text-left px-3 py-1.5 text-xs rounded-md", sortBy === 'newest' ? 'bg-primary/10 text-primary font-bold' : 'hover:bg-muted')}>Terbaru</button>
-                      <button onClick={() => { setSortBy("oldest"); setShowSortMenu(false); }} className={cn("w-full text-left px-3 py-1.5 text-xs rounded-md", sortBy === 'oldest' ? 'bg-primary/10 text-primary font-bold' : 'hover:bg-muted')}>Terlama</button>
-                      <button onClick={() => { setSortBy("az"); setShowSortMenu(false); }} className={cn("w-full text-left px-3 py-1.5 text-xs rounded-md", sortBy === 'az' ? 'bg-primary/10 text-primary font-bold' : 'hover:bg-muted')}>A - Z</button>
+                    <div className="absolute right-0 top-full mt-2 w-44 bg-card border border-border shadow-xl rounded-2xl z-50 p-1.5 animate-in zoom-in-95">
+                      <p className="text-[10px] font-bold text-muted-foreground px-3 py-1.5 uppercase tracking-wider">Urutkan</p>
+                      <button onClick={() => { setSortBy("newest"); setShowSortMenu(false); }} className={cn("w-full text-left px-3 py-2 text-xs rounded-xl transition-colors", sortBy === 'newest' ? 'bg-primary/10 text-primary font-bold' : 'hover:bg-muted font-medium')}>Paling Baru</button>
+                      <button onClick={() => { setSortBy("oldest"); setShowSortMenu(false); }} className={cn("w-full text-left px-3 py-2 text-xs rounded-xl transition-colors", sortBy === 'oldest' ? 'bg-primary/10 text-primary font-bold' : 'hover:bg-muted font-medium')}>Paling Lama</button>
+                      <button onClick={() => { setSortBy("az"); setShowSortMenu(false); }} className={cn("w-full text-left px-3 py-2 text-xs rounded-xl transition-colors", sortBy === 'az' ? 'bg-primary/10 text-primary font-bold' : 'hover:bg-muted font-medium')}>A - Z</button>
                     </div>
                   </>
                 )}
               </div>
-              <Button variant="ghost" size="icon" onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")} className="w-6 h-6 rounded text-muted-foreground hover:text-foreground lg:hidden">
-                {viewMode === "grid" ? <List className="w-3.5 h-3.5" /> : <LayoutGrid className="w-3.5 h-3.5" />}
+              <Button variant="ghost" size="icon" onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")} className="w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted lg:hidden">
+                {viewMode === "grid" ? <List className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
               </Button>
             </div>
           </div>
         </div>
 
         {/* Scrollable Note List */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar py-2">
+        <div className="flex-1 overflow-y-auto custom-scrollbar py-3">
           {displayedNotes.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center px-6 opacity-60">
-              <FileText className="w-10 h-10 mb-3 text-muted-foreground" />
-              <p className="text-sm font-medium text-foreground">Kosong</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {searchQuery || selectedTag ? "Tidak ada yang cocok." : "Belum ada dokumen dibuat."}
+              <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
+                <FileText className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <p className="text-base font-bold text-foreground">Ruang Kosong</p>
+              <p className="text-sm text-muted-foreground mt-1 max-w-[200px]">
+                {searchQuery || selectedTag ? "Tidak ada catatan yang cocok dengan filtermu." : "Belum ada dokumen yang dibuat di sini."}
               </p>
             </div>
           ) : (
             <DragDropContext onDragEnd={onDragEnd}>
-              <div className="flex flex-col gap-4 pb-20 lg:pb-6">
+              <div className="flex flex-col gap-5 pb-24 lg:pb-8">
                 
                 {treePinnedNotes.length > 0 && (
                   <Droppable droppableId="pinned">
                     {(provided) => (
                       <div ref={provided.innerRef} {...provided.droppableProps}>
-                        <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-5 mb-1.5">Disematkan</h3>
-                        <div className={cn("gap-1", isDesktop ? "flex flex-col" : (viewMode === "grid" ? "grid grid-cols-2 px-3" : "flex flex-col"))}>
+                        <h3 className="text-[11px] font-extrabold text-primary uppercase tracking-widest px-6 mb-2 flex items-center gap-1.5">
+                          <Pin className="w-3.5 h-3.5 fill-primary" /> Prioritas
+                        </h3>
+                        <div className={cn("gap-1.5", isDesktop ? "flex flex-col" : (viewMode === "grid" ? "grid grid-cols-2 px-4" : "flex flex-col"))}>
                           {treePinnedNotes.map((note, index) => renderNoteCard(note, index))}
                         </div>
                         {provided.placeholder}
@@ -414,8 +433,8 @@ function NotesContent() {
                   <Droppable droppableId="unpinned">
                     {(provided) => (
                       <div ref={provided.innerRef} {...provided.droppableProps}>
-                        {treePinnedNotes.length > 0 && <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-5 mb-1.5 mt-2">Lainnya</h3>}
-                        <div className={cn("gap-1", isDesktop ? "flex flex-col" : (viewMode === "grid" ? "grid grid-cols-2 px-3" : "flex flex-col"))}>
+                        {treePinnedNotes.length > 0 && <h3 className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-widest px-6 mb-2 mt-4">Catatan Lainnya</h3>}
+                        <div className={cn("gap-1.5", isDesktop ? "flex flex-col" : (viewMode === "grid" ? "grid grid-cols-2 px-4" : "flex flex-col"))}>
                           {treeUnpinnedNotes.map((note, index) => renderNoteCard(note, index))}
                         </div>
                         {provided.placeholder}
@@ -435,86 +454,101 @@ function NotesContent() {
           ========================================= */}
       <div className={cn(
         "hidden lg:flex flex-1 flex-col h-full bg-background relative",
-        !selectedNoteId && "items-center justify-center bg-muted/10"
+        !selectedNoteId && "items-center justify-center"
       )}>
         {!selectedNoteId ? (
-          // Empty State Reading View
-          <div className="flex flex-col items-center text-center max-w-sm animate-in zoom-in-95 duration-500 opacity-60">
-            <div className="w-20 h-20 mb-6 rounded-2xl bg-card border border-border flex items-center justify-center shadow-sm">
-              <FileEdit className="w-8 h-8 text-muted-foreground" />
+          // EMPTY STATE MEWAH UNTUK RIGHT PANE
+          <div className="flex flex-col items-center justify-center h-full w-full relative overflow-hidden">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-3xl pointer-events-none" />
+            
+            <div className="w-28 h-28 mb-8 rounded-[2.5rem] bg-gradient-to-br from-primary/20 to-purple-500/20 border border-primary/20 flex items-center justify-center shadow-2xl relative z-10 rotate-3 hover:rotate-0 transition-transform duration-500">
+              <FileEdit className="w-12 h-12 text-primary" />
             </div>
-            <h2 className="text-xl font-bold tracking-tight mb-2 text-foreground">Pilih Dokumen</h2>
-            <p className="text-muted-foreground text-sm">
-              Klik salah satu catatan di bilah kiri untuk membacanya, atau buat dokumen baru untuk memulai.
+            
+            <h2 className="text-4xl font-black tracking-tight mb-4 text-foreground relative z-10">Workspace Cerdas</h2>
+            <p className="text-muted-foreground text-lg max-w-md text-center leading-relaxed relative z-10 mb-10">
+              Pilih catatan dari panel di sebelah kiri untuk mulai membaca, atau buat dokumen baru untuk menuangkan ide hebatmu hari ini.
             </p>
-            <Button asChild className="mt-6 rounded-lg shadow-sm font-medium h-9">
-              <Link href="/create"><Edit3 className="w-4 h-4 mr-2" /> Tulis Baru</Link>
+            
+            <Button asChild className="rounded-2xl shadow-xl shadow-primary/20 font-bold h-14 px-10 text-lg bg-primary hover:bg-primary/90 relative z-10 transition-transform active:scale-95">
+              <Link href="/create"><Edit3 className="w-5 h-5 mr-3" /> Tulis Dokumen Baru</Link>
             </Button>
           </div>
         ) : selectedNoteData ? (
           // Active Reading View
           <div className="flex flex-col h-full w-full animate-in fade-in duration-300">
             
-            {/* Top Action Bar */}
-            <div className="flex items-center justify-between px-8 py-4 border-b border-border/30 bg-background/95 backdrop-blur-sm z-10 shrink-0">
+            {/* Top Action Bar (Professional Header) */}
+            <div className="flex items-center justify-between px-8 py-5 border-b border-border/50 bg-card/80 backdrop-blur-xl z-10 shrink-0 shadow-sm">
               <div className="flex items-center gap-3">
-                <Button variant="ghost" size="icon" className="lg:hidden -ml-2" onClick={() => setSelectedNoteId(null)}>
+                <Button variant="ghost" size="icon" className="lg:hidden -ml-2 rounded-xl" onClick={() => setSelectedNoteId(null)}>
                   <X className="w-5 h-5" />
                 </Button>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
-                  <span className="hover:text-foreground cursor-pointer transition-colors" onClick={() => setSelectedNoteId(null)}>Workspace</span>
-                  <ChevronRight className="w-3 h-3" />
-                  <span className="text-foreground truncate max-w-[200px]">{selectedNoteData.title || "Tanpa Judul"}</span>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground font-semibold">
+                  <span className="hover:text-primary cursor-pointer transition-colors flex items-center gap-2" onClick={() => setSelectedNoteId(null)}>
+                    <Sparkles className="w-4 h-4" /> Workspace
+                  </span>
+                  <ChevronRight className="w-4 h-4 opacity-50" />
+                  <span className="text-foreground truncate max-w-[300px]">{selectedNoteData.title || "Tanpa Judul"}</span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2 bg-muted/30 p-1.5 rounded-2xl border border-border/50">
                 <Button 
                   variant="ghost" 
                   size="sm" 
-                  className={cn("h-8 rounded-md text-xs font-semibold", selectedNoteData.isPinned ? "text-primary bg-primary/10" : "text-muted-foreground hover:bg-muted")}
+                  className={cn("h-10 rounded-xl text-sm font-bold transition-all px-4", selectedNoteData.isPinned ? "text-primary bg-background shadow-sm" : "text-muted-foreground hover:bg-background hover:text-foreground")}
                   onClick={() => handleTogglePin(selectedNoteData.id, selectedNoteData.isPinned)}
                 >
-                  <Pin className={cn("w-3.5 h-3.5 mr-1.5", selectedNoteData.isPinned && "fill-primary")} />
+                  <Pin className={cn("w-4 h-4 mr-2", selectedNoteData.isPinned && "fill-primary")} />
                   {selectedNoteData.isPinned ? "Tersemat" : "Sematkan"}
                 </Button>
-                <div className="w-px h-4 bg-border mx-1" />
+                <div className="w-px h-5 bg-border mx-1" />
                 <Button 
                   variant="ghost" 
-                  size="sm" 
-                  className="h-8 rounded-md text-xs font-semibold text-destructive hover:bg-destructive/10"
+                  size="icon" 
+                  className="h-10 w-10 rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
                   onClick={() => handleDelete(selectedNoteData.id)}
+                  title="Hapus Dokumen"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-5 h-5" />
                 </Button>
-                <Button asChild className="h-8 rounded-md text-xs font-semibold ml-1 shadow-sm">
-                  <Link href={`/edit/${selectedNoteData.id}`}><Edit3 className="w-3.5 h-3.5 mr-1.5" /> Edit Dokumen</Link>
+                <Button asChild className="h-10 rounded-xl text-sm font-bold ml-1 shadow-md bg-primary hover:bg-primary/90 text-primary-foreground px-5">
+                  <Link href={`/edit/${selectedNoteData.id}`}><Edit3 className="w-4 h-4 mr-2" /> Edit</Link>
                 </Button>
               </div>
             </div>
 
             {/* Reading Content Area */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar px-8 md:px-16 py-10 lg:py-16">
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-8 md:px-16 py-10 lg:py-16 bg-[#fcfcfc] dark:bg-[#0a0a0a]">
               <div className="max-w-3xl mx-auto">
-                <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-6 text-foreground leading-tight">
+                <h1 className="text-4xl md:text-5xl lg:text-6xl font-black tracking-tight mb-6 text-foreground leading-[1.15]">
                   {selectedNoteData.title || "Tanpa Judul"}
                 </h1>
                 
                 {selectedNoteData.tags && selectedNoteData.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mb-10">
+                  <div className="flex flex-wrap gap-2 mb-12">
                     {selectedNoteData.tags.map(tag => (
-                      <span key={tag} className="px-2.5 py-1 bg-muted/60 text-muted-foreground text-xs font-semibold rounded-md border border-border/50">
-                        #{tag}
+                      <span key={tag} className="px-3 py-1.5 bg-primary/10 text-primary text-xs font-bold uppercase tracking-widest rounded-lg border border-primary/20 flex items-center gap-1.5">
+                        <TagIcon className="w-3.5 h-3.5" /> {tag}
                       </span>
                     ))}
                   </div>
                 )}
 
+                <div className="w-full h-px bg-border/60 mb-10" />
+
                 {/* Konten HTML dari Tiptap (Distraction Free Reading) */}
                 <div 
-                  className="prose prose-sm md:prose-base lg:prose-lg dark:prose-invert max-w-none text-foreground/90 leading-relaxed marker:text-primary prose-headings:font-bold prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-p:mb-6 prose-ul:mb-6 prose-ol:mb-6 prose-li:my-1"
+                  className="prose prose-base lg:prose-lg dark:prose-invert max-w-none text-foreground/90 leading-relaxed marker:text-primary 
+                  prose-headings:font-bold prose-headings:tracking-tight prose-a:text-primary prose-a:no-underline hover:prose-a:underline 
+                  prose-p:mb-6 prose-ul:mb-6 prose-ol:mb-6 prose-li:my-2 prose-strong:font-extrabold
+                  prose-blockquote:border-l-4 prose-blockquote:border-primary prose-blockquote:bg-muted/30 prose-blockquote:py-2 prose-blockquote:px-5 prose-blockquote:rounded-r-2xl prose-blockquote:italic prose-blockquote:text-muted-foreground
+                  prose-pre:bg-[#1e1e1e] prose-pre:text-[#d4d4d4] prose-pre:p-5 prose-pre:rounded-2xl prose-pre:border prose-pre:border-border/50 prose-pre:shadow-inner
+                  prose-code:bg-muted prose-code:text-foreground prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[0.9em] prose-code:font-medium
+                  prose-img:rounded-2xl prose-img:shadow-md"
                   dangerouslySetInnerHTML={{ 
-                    __html: selectedNoteData.content || '<p class="text-muted-foreground italic">Dokumen ini kosong. Klik Edit Dokumen untuk mulai menulis.</p>' 
+                    __html: selectedNoteData.content || '<p class="text-muted-foreground italic text-lg">Dokumen ini kosong. Klik Edit Dokumen untuk mulai menulis.</p>' 
                   }}
                 />
               </div>
@@ -529,14 +563,14 @@ function NotesContent() {
         <>
           <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm lg:hidden" onClick={() => setActiveNoteOptions(null)}></div>
           <div className="fixed inset-x-0 bottom-0 z-[110] p-4 flex justify-center animate-in slide-in-from-bottom-8 duration-300 pointer-events-none lg:hidden">
-            <div className="bg-card border border-border w-full max-w-sm rounded-[2rem] p-5 shadow-2xl pointer-events-auto">
-              <div className="w-12 h-1.5 bg-muted rounded-full mx-auto mb-5" />
-              <h3 className="font-bold text-lg mb-4 text-center truncate px-2">{activeNoteOptions.title || "Tanpa Judul"}</h3>
+            <div className="bg-card border border-border w-full max-w-sm rounded-[2rem] p-6 shadow-2xl pointer-events-auto">
+              <div className="w-12 h-1.5 bg-muted rounded-full mx-auto mb-6" />
+              <h3 className="font-extrabold text-xl mb-6 text-center truncate px-2">{activeNoteOptions.title || "Tanpa Judul"}</h3>
               
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <Button 
                   variant="outline" 
-                  className={`w-full justify-start h-14 rounded-xl text-base ${activeNoteOptions.isPinned ? "bg-primary/10 text-primary border-primary/30" : ""}`}
+                  className={`w-full justify-start h-14 rounded-2xl text-base font-bold ${activeNoteOptions.isPinned ? "bg-primary/10 text-primary border-primary/30" : ""}`}
                   onClick={() => {
                     handleTogglePin(activeNoteOptions.id, activeNoteOptions.isPinned);
                     setActiveNoteOptions(null);
@@ -547,15 +581,15 @@ function NotesContent() {
                 </Button>
                 <Button 
                   variant="outline" 
-                  className="w-full justify-start h-14 rounded-xl text-base text-destructive hover:bg-destructive/10 hover:text-destructive border-border"
+                  className="w-full justify-start h-14 rounded-2xl text-base font-bold text-destructive hover:bg-destructive/10 hover:text-destructive border-border"
                   onClick={() => {
                     setActiveNoteOptions(null);
                     handleDelete(activeNoteOptions.id);
                   }}
                 >
-                  <Trash2 className="w-5 h-5 mr-3" /> Hapus
+                  <Trash2 className="w-5 h-5 mr-3" /> Hapus Permanen
                 </Button>
-                <Button variant="secondary" className="w-full h-14 rounded-xl text-base mt-2 font-bold" onClick={() => setActiveNoteOptions(null)}>
+                <Button variant="secondary" className="w-full h-14 rounded-2xl text-base mt-2 font-bold" onClick={() => setActiveNoteOptions(null)}>
                   Batal
                 </Button>
               </div>
@@ -566,12 +600,14 @@ function NotesContent() {
 
       {/* Modal Input PIN untuk Brankas */}
       {showPinModal && (
-        <div className="fixed inset-0 z-[100] bg-background/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-card border border-border/50 p-8 rounded-[2rem] shadow-2xl w-full max-w-sm animate-in zoom-in-95 text-center relative overflow-hidden">
+        <div className="fixed inset-0 z-[100] bg-background/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-card border border-border/50 p-8 md:p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md animate-in zoom-in-95 text-center relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-purple-500 to-indigo-500" />
-            <LockKeyhole className="w-12 h-12 text-purple-500 mx-auto mb-5 drop-shadow-sm" />
-            <h3 className="font-bold text-2xl mb-2">Akses Brankas</h3>
-            <p className="text-sm text-muted-foreground mb-8">Masukkan 4 digit PIN keamananmu</p>
+            <div className="w-20 h-20 bg-purple-500/10 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+              <LockKeyhole className="w-10 h-10 text-purple-600" />
+            </div>
+            <h3 className="font-extrabold text-3xl mb-3 text-foreground">Akses Brankas</h3>
+            <p className="text-base text-muted-foreground mb-8">Masukkan 4 digit PIN keamananmu untuk membuka kunci.</p>
             
             <input 
               type="password" 
@@ -579,12 +615,16 @@ function NotesContent() {
               autoFocus 
               value={pinInput} 
               onChange={(e) => setPinInput(e.target.value.replace(/[^0-9]/g, ''))} 
-              className="w-full bg-muted/50 px-4 py-4 text-center tracking-[1em] text-3xl font-black rounded-2xl outline-none focus:ring-4 focus:ring-purple-500/20 mb-8 border border-transparent focus:border-purple-500/30 transition-all shadow-inner" 
+              className="w-full bg-muted/50 px-6 py-5 text-center tracking-[1em] text-4xl font-black rounded-2xl outline-none focus:ring-4 focus:ring-purple-500/20 mb-8 border border-transparent focus:border-purple-500/30 transition-all shadow-inner" 
             />
             
             <div className="flex gap-3">
-              <Button variant="outline" className="flex-1 rounded-xl h-12 font-bold" onClick={() => { setShowPinModal(false); setPinInput(""); }}>Batal</Button>
-              <Button className="flex-1 rounded-xl bg-purple-600 hover:bg-purple-700 text-white shadow-md h-12 font-bold transition-all" onClick={handleUnlockVault} disabled={pinInput.length !== 4}>Buka</Button>
+              <Button variant="outline" className="flex-1 rounded-2xl h-14 font-bold text-base hover:bg-muted" onClick={() => { setShowPinModal(false); setPinInput(""); }}>
+                Batal
+              </Button>
+              <Button className="flex-1 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white shadow-md h-14 font-bold text-base transition-all border-0" onClick={handleUnlockVault} disabled={pinInput.length !== 4}>
+                Buka Brankas
+              </Button>
             </div>
           </div>
         </div>

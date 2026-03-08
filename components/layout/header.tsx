@@ -372,9 +372,13 @@ export function Header() {
               "p-2 rounded-full hover:bg-muted md:p-1 md:pr-4 md:border md:border-border/50 md:bg-muted/30 md:hover:bg-muted md:rounded-full md:gap-2"
             )}
           >
-            {/* Tampilan Desktop */}
-            <div className="hidden md:flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white shadow-sm">
-              <User className="w-4 h-4" />
+            {/* Tampilan Desktop (Menarik Foto Profil secara dinamis) */}
+            <div className="hidden md:flex items-center justify-center w-8 h-8 rounded-full overflow-hidden bg-gradient-to-tr from-indigo-500 to-purple-500 text-white shadow-sm shrink-0 border border-border">
+              {user?.isAnonymous ? (
+                <User className="w-4 h-4" />
+              ) : (
+                <img src={user?.photoURL || `https://ui-avatars.com/api/?name=${user?.displayName || 'User'}`} alt="Profile" className="w-full h-full object-cover" />
+              )}
             </div>
             <span className="hidden md:block text-sm font-medium text-foreground truncate max-w-[120px]">
               {user?.isAnonymous ? "Tamu" : (user?.displayName || "Profil")}
@@ -453,8 +457,8 @@ export function Header() {
             <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)}></div>
             <div className="absolute top-16 right-4 md:right-6 mt-2 w-56 rounded-2xl border border-border/60 bg-background/95 backdrop-blur-xl shadow-2xl py-2 animate-in fade-in slide-in-from-top-2 z-50 overflow-hidden">
               <div className="px-4 py-3 border-b border-border/50 mb-1 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white flex items-center justify-center shadow-sm">
-                  <User className="w-4 h-4" />
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white flex items-center justify-center shadow-sm overflow-hidden shrink-0">
+                  {user?.isAnonymous ? <User className="w-4 h-4" /> : <img src={user?.photoURL || `https://ui-avatars.com/api/?name=${user?.displayName || 'User'}`} alt="Profile" className="w-full h-full object-cover" />}
                 </div>
                 <div className="flex flex-col">
                   <p className="text-sm font-bold text-foreground truncate max-w-[120px]">{user?.isAnonymous ? "Pengguna Tamu" : (user?.displayName || "Pengguna Nexa")}</p>

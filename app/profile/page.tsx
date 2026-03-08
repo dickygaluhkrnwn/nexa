@@ -7,12 +7,13 @@ import { getUserNotes } from "@/lib/notes-service";
 import { Button } from "@/components/ui/button";
 import { 
   Loader2, Sparkles, Mail, User as UserIcon, BrainCircuit, Lock,
-  UserCircle, Palette, ShieldCheck, BellRing, Archive
+  UserCircle, Palette, ShieldCheck, BellRing, Archive, LogIn
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useModal } from "@/hooks/use-modal"; 
 import { useTheme } from "next-themes"; 
 import { useSettings, ColorAccent, FontStyle } from "@/hooks/use-settings"; 
+import { cn } from "@/lib/utils";
 
 // --- Impor Komponen Tab ---
 import { AccountTab } from "@/components/profile/account-tab";
@@ -43,7 +44,7 @@ export default function ProfilePage() {
   const [isEditingPin, setIsEditingPin] = useState(false);
   const [stats, setStats] = useState({ notes: 0, todos: 0, vault: 0 });
   const [archivedReviews, setArchivedReviews] = useState<any[]>([]); 
-  const [activityDates, setActivityDates] = useState<Date[]>([]); // State untuk Heatmap
+  const [activityDates, setActivityDates] = useState<Date[]>([]); 
 
   // --- States untuk Mode Form Login/Daftar ---
   const [isRegisterMode, setIsRegisterMode] = useState(true); 
@@ -79,11 +80,9 @@ export default function ProfilePage() {
           vault: notesData.filter((n: any) => n.isHidden).length,
         });
 
-        // Ekstrak tanggal untuk Heatmap (createdAt dan updatedAt jika ada & isCompleted == true untuk todo)
         const dates: Date[] = [];
         notesData.forEach((note: any) => {
           if (note.createdAt) {
-             // Konversi timestamp Firestore ke Date object
              dates.push(note.createdAt.toDate ? note.createdAt.toDate() : new Date(note.createdAt));
           }
           if (note.isTodo && note.isCompleted && note.updatedAt) {
@@ -146,19 +145,19 @@ export default function ProfilePage() {
     };
 
     return (
-      <div className="flex flex-col items-center justify-center min-h-[85vh] px-4 pb-12 pt-6 relative">
+      <div className="flex flex-col items-center justify-center min-h-[85vh] px-4 pb-12 pt-6 relative max-w-md mx-auto">
         <div className="absolute top-10 left-1/2 -translate-x-1/2 w-64 h-64 bg-primary/10 rounded-full blur-3xl -z-10 pointer-events-none" />
         <div className="text-center mb-8 animate-in slide-in-from-top-4 duration-700">
           <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-cyan-400 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/20 ring-4 ring-background">
             <BrainCircuit className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-2xl font-extrabold tracking-tight mb-2">Simpan Permanen</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight mb-2">Akses Terbatas</h1>
           <p className="text-muted-foreground text-sm max-w-[280px] mx-auto leading-relaxed">
-            Amankan semua catatan dan tugasmu di *cloud* agar tidak hilang.
+            Daftar atau masuk untuk mengamankan catatanmu di awan secara permanen.
           </p>
         </div>
 
-        <div className="w-full max-w-sm bg-card/80 backdrop-blur-md border border-border rounded-[2rem] p-6 shadow-2xl animate-in zoom-in-95 duration-500">
+        <div className="w-full bg-card/80 backdrop-blur-md border border-border rounded-[2rem] p-6 md:p-8 shadow-2xl animate-in zoom-in-95 duration-500">
           <h2 className="text-xl font-bold mb-6 text-center">{isRegisterMode ? "Buat Akun Baru" : "Masuk ke Akunmu"}</h2>
           <form onSubmit={handleAuthSubmit} className="space-y-4">
             {isRegisterMode && (
@@ -243,63 +242,105 @@ export default function ProfilePage() {
     });
   };
 
+  const tabs = [
+    { id: 'account', icon: UserCircle, label: 'Akun & Aktivitas' },
+    { id: 'archive', icon: Archive, label: 'Arsip Laporan' },
+    { id: 'appearance', icon: Palette, label: 'Personalisasi Tema' },
+    { id: 'security', icon: ShieldCheck, label: 'Keamanan Data' },
+    { id: 'notifications', icon: BellRing, label: 'Notifikasi & Integrasi' }
+  ];
+
   return (
-    <div className="p-4 pb-24 space-y-6 animate-in fade-in duration-500 max-w-lg mx-auto">
+    <div className="p-4 md:p-6 lg:p-8 pb-32 animate-in fade-in duration-500 max-w-[1400px] mx-auto w-full relative">
       
-      {/* 1. Header Profile */}
-      <div className="relative mt-6 mb-8">
-        <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-purple-500/20 blur-3xl rounded-full pointer-events-none" />
-        <div className="relative flex flex-col items-center text-center space-y-4 pt-4">
-          <div className="relative group">
-            <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-background shadow-2xl ring-4 ring-primary/10 transition-all duration-300 group-hover:ring-primary/30">
-              <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} alt="Profile" className="w-full h-full object-cover" />
-            </div>
-            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-gradient-to-r from-cyan-500 to-purple-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-full border-2 border-background flex items-center gap-1.5 shadow-lg whitespace-nowrap z-10">
-              <Sparkles className="w-3 h-3 fill-white" /> Nexa Member
-            </div>
+      {/* Background Dekoratif */}
+      <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-primary/10 via-purple-500/5 to-transparent rounded-bl-full pointer-events-none" />
+
+      {/* Header Utama Profil */}
+      <div className="mb-8 md:mb-12 relative z-10 flex flex-col md:flex-row items-center md:items-start gap-6 md:gap-8 text-center md:text-left">
+        <div className="relative group shrink-0">
+          <div className="w-32 h-32 md:w-40 md:h-40 rounded-[2rem] overflow-hidden border-4 border-background shadow-2xl ring-4 ring-primary/20 transition-transform duration-300 group-hover:scale-105 bg-muted">
+            <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName || 'User'}`} alt="Profile" className="w-full h-full object-cover" />
           </div>
-          <div className="pt-3">
-            <h1 className="text-2xl font-extrabold tracking-tight">{user.displayName}</h1>
-            <p className="text-sm text-muted-foreground font-medium mt-0.5">{user.email}</p>
+          <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-cyan-500 to-purple-600 text-white text-[10px] md:text-xs font-bold px-4 py-1.5 rounded-full border-2 border-background flex items-center gap-1.5 shadow-lg whitespace-nowrap z-10">
+            <Sparkles className="w-3 h-3 md:w-4 md:h-4 fill-white" /> Nexa Member
           </div>
+        </div>
+        <div className="pt-2 md:pt-4">
+          <h1 className="text-3xl md:text-5xl font-black tracking-tight text-foreground">{user.displayName}</h1>
+          <p className="text-sm md:text-lg text-muted-foreground font-medium mt-2 flex items-center justify-center md:justify-start gap-2">
+            <Mail className="w-4 h-4 md:w-5 md:h-5" /> {user.email}
+          </p>
         </div>
       </div>
 
-      {/* 2. Sistem Tabs Navigasi */}
-      <div className="flex p-1 bg-muted rounded-xl w-full overflow-x-auto scrollbar-hide snap-x">
-        {[
-          { id: 'account', icon: UserCircle, label: 'Akun' },
-          { id: 'archive', icon: Archive, label: 'Arsip' },
-          { id: 'appearance', icon: Palette, label: 'Tampilan' },
-          { id: 'security', icon: ShieldCheck, label: 'Keamanan' },
-          { id: 'notifications', icon: BellRing, label: 'Notif' }
-        ].map((tab) => (
-          <button 
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as TabMode)} 
-            className={`snap-start flex-1 min-w-[100px] flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-bold rounded-lg transition-all ${activeTab === tab.id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-          >
-            <tab.icon className="w-4 h-4" /> {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* Grid Layout Desktop (Sidebar Nav & Konten) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start relative z-10">
+        
+        {/* Panel Kiri: Navigasi Tabs */}
+        <div className="lg:col-span-4 xl:col-span-3 flex flex-col gap-2">
+          {/* Tampilan Desktop (List Vertikal) */}
+          <div className="hidden lg:flex flex-col gap-1.5 bg-card/50 border border-border/50 rounded-[2rem] p-3 shadow-sm sticky top-24">
+            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-3 py-2 mb-1">Pengaturan Profil</h3>
+            {tabs.map((tab) => (
+              <button 
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as TabMode)} 
+                className={cn(
+                  "w-full flex items-center justify-start gap-3 px-4 py-3.5 text-sm font-bold rounded-2xl transition-all",
+                  activeTab === tab.id ? "bg-primary text-primary-foreground shadow-md shadow-primary/20" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+              >
+                <tab.icon className="w-5 h-5 shrink-0" /> 
+                <span className="truncate">{tab.label}</span>
+              </button>
+            ))}
+          </div>
 
-      {/* 3. Area Konten Render Berdasarkan Tab */}
-      <div className="mt-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        {activeTab === 'account' && <AccountTab stats={stats} onLogout={handleLogout} activityDates={activityDates} />}
-        {activeTab === 'archive' && <ArchiveTab archivedReviews={archivedReviews} />}
-        {activeTab === 'appearance' && (
-          <AppearanceTab 
-            theme={theme} 
-            setTheme={setTheme} 
-            colorAccent={colorAccent} 
-            setColorAccent={(c) => setColorAccent(c as ColorAccent)} 
-            fontStyle={fontStyle} 
-            setFontStyle={(f) => setFontStyle(f as FontStyle)} 
-          />
-        )}
-        {activeTab === 'security' && <SecurityTab pinCode={pinCode} setPinCode={setPinCode} isEditingPin={isEditingPin} setIsEditingPin={setIsEditingPin} isSaving={isSaving} onSavePin={handleSavePin} />}
-        {activeTab === 'notifications' && <NotificationsTab pushPermission={pushPermission} onRequestPush={handleRequestPush} vibrationEnabled={vibrationEnabled} onToggleVibration={handleToggleVibration} whatsapp={whatsapp} setWhatsapp={setWhatsapp} isEditingWA={isEditingWA} setIsEditingWA={setIsEditingWA} isSaving={isSaving} onSaveWA={handleSaveWA} />}
+          {/* Tampilan Mobile (Scroll Horizontal) */}
+          <div className="lg:hidden flex p-1.5 bg-muted/80 rounded-2xl w-full overflow-x-auto custom-scrollbar snap-x border border-border/50">
+            {tabs.map((tab) => (
+              <button 
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as TabMode)} 
+                className={cn(
+                  "snap-start flex-1 min-w-[120px] flex flex-col items-center justify-center gap-2 px-3 py-3 text-[11px] font-bold rounded-xl transition-all",
+                  activeTab === tab.id ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <tab.icon className="w-5 h-5" /> 
+                <span className="text-center">{tab.label.split(' ')[0]}</span> {/* Singkat nama tab di mobile */}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Panel Kanan: Area Konten Dinamis */}
+        <div className="lg:col-span-8 xl:col-span-9 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="bg-card border border-border shadow-sm rounded-[2rem] p-5 md:p-8">
+            <div className="mb-6 pb-4 border-b border-border/50 hidden lg:block">
+              <h2 className="text-2xl font-bold text-foreground">
+                {tabs.find(t => t.id === activeTab)?.label}
+              </h2>
+            </div>
+            
+            {activeTab === 'account' && <AccountTab stats={stats} onLogout={handleLogout} activityDates={activityDates} />}
+            {activeTab === 'archive' && <ArchiveTab archivedReviews={archivedReviews} />}
+            {activeTab === 'appearance' && (
+              <AppearanceTab 
+                theme={theme} 
+                setTheme={setTheme} 
+                colorAccent={colorAccent} 
+                setColorAccent={(c) => setColorAccent(c as ColorAccent)} 
+                fontStyle={fontStyle} 
+                setFontStyle={(f) => setFontStyle(f as FontStyle)} 
+              />
+            )}
+            {activeTab === 'security' && <SecurityTab pinCode={pinCode} setPinCode={setPinCode} isEditingPin={isEditingPin} setIsEditingPin={setIsEditingPin} isSaving={isSaving} onSavePin={handleSavePin} />}
+            {activeTab === 'notifications' && <NotificationsTab pushPermission={pushPermission} onRequestPush={handleRequestPush} vibrationEnabled={vibrationEnabled} onToggleVibration={handleToggleVibration} whatsapp={whatsapp} setWhatsapp={setWhatsapp} isEditingWA={isEditingWA} setIsEditingWA={setIsEditingWA} isSaving={isSaving} onSaveWA={handleSaveWA} />}
+          </div>
+        </div>
+
       </div>
 
     </div>

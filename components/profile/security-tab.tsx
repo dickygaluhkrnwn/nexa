@@ -21,7 +21,6 @@ export function SecurityTab({ pinCode, setPinCode, isEditingPin, setIsEditingPin
   const { showAlert } = useModal();
   const [isSendingEmail, setIsSendingEmail] = useState(false);
 
-  // --- FUNGSI MENGIRIM LINK RESET/BUAT PASSWORD ---
   const handleResetPassword = async () => {
     if (!user || !user.email) {
       showAlert("Gagal", "Email pengguna tidak ditemukan.");
@@ -31,11 +30,10 @@ export function SecurityTab({ pinCode, setPinCode, isEditingPin, setIsEditingPin
     setIsSendingEmail(true);
     try {
       const auth = getAuth();
-      // Mengirim email pengaturan sandi bawaan Firebase
       await sendPasswordResetEmail(auth, user.email);
       showAlert(
         "Email Terkirim! 📧", 
-        `Link untuk mengatur password telah dikirim ke ${user.email}. Silakan klik link di email tersebut untuk membuat kata sandimu, lalu gunakan untuk login di Nexa Mobile.`
+        `Link untuk mengatur ulang atau membuat password telah dikirim ke ${user.email}. Silakan periksa kotak masukmu.`
       );
     } catch (error: any) {
       console.error("Error sending password reset email:", error);
@@ -46,54 +44,53 @@ export function SecurityTab({ pinCode, setPinCode, isEditingPin, setIsEditingPin
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
+    <div className="space-y-8 animate-in fade-in slide-in-from-top-2 duration-300">
       
       {/* 1. PENGATURAN BRANKAS (PIN) */}
-      <div className="space-y-4">
-        <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 ml-1 flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4" /> Perlindungan Catatan
+      <div>
+        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5" /> Perlindungan Privasi
         </h3>
-        <div className="bg-card border border-border/60 rounded-[2rem] p-5 shadow-sm space-y-5 transition-all hover:shadow-md">
-          <div className="flex items-center justify-between border-b border-border/50 pb-5">
+        <div className="bg-background border border-border/60 rounded-[2rem] p-6 md:p-8 shadow-sm transition-all hover:shadow-md">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-purple-500/10 rounded-2xl text-purple-600 shadow-inner">
-                <ShieldCheck className="w-5 h-5" />
+              <div className="w-12 h-12 bg-purple-500/10 rounded-2xl text-purple-600 flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-6 h-6" />
               </div>
               <div>
-                <h2 className="font-bold text-base">Brankas Rahasia</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">PIN 4 angka akses catatan</p>
+                <h2 className="font-bold text-base md:text-lg">Brankas Rahasia</h2>
+                <p className="text-xs md:text-sm text-muted-foreground mt-0.5">Kunci catatan penting dengan PIN khusus.</p>
               </div>
             </div>
             
             {!isEditingPin && (
               <Button 
-                variant="ghost" 
-                size="sm" 
+                variant="outline" 
                 onClick={() => setIsEditingPin(true)}
-                className="text-primary hover:text-primary hover:bg-primary/10 rounded-full px-4 font-bold"
+                className="text-primary hover:text-primary hover:bg-primary/5 rounded-xl px-5 font-bold h-11"
               >
-                <Pencil className="w-4 h-4 mr-2" /> Edit
+                <Pencil className="w-4 h-4 mr-2" /> {pinCode ? "Ubah PIN" : "Buat PIN"}
               </Button>
             )}
           </div>
           
           <div>
             {isEditingPin ? (
-              <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300 bg-muted/30 p-4 rounded-2xl border border-border/50">
+              <div className="space-y-5 animate-in fade-in slide-in-from-top-2 duration-300 bg-muted/20 p-5 rounded-[1.5rem] border border-border/50 max-w-md">
                 <div className="relative group">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground group-focus-within:text-purple-500 transition-colors" />
+                  <Lock className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground group-focus-within:text-purple-500 transition-colors" />
                   <input
                     type="password"
                     maxLength={4}
-                    placeholder="Masukkan 4 Angka"
+                    placeholder="Ketik 4 Angka"
                     value={pinCode}
                     onChange={(e) => setPinCode(e.target.value.replace(/[^0-9]/g, ''))}
-                    className="w-full bg-background pl-12 pr-4 py-3.5 text-center tracking-[1em] text-xl font-black rounded-xl outline-none focus:ring-2 focus:ring-purple-500/50 transition-all border border-border focus:border-purple-500/30 shadow-inner"
+                    className="w-full bg-background pl-14 pr-4 py-4 text-center tracking-[1em] text-2xl font-black rounded-xl outline-none focus:ring-2 focus:ring-purple-500/50 transition-all border border-border focus:border-purple-500/30 shadow-inner"
                     autoFocus
                   />
                 </div>
                 
-                <div className="flex gap-2 pt-1">
+                <div className="flex gap-3">
                   <Button variant="outline" onClick={() => setIsEditingPin(false)} disabled={isSaving} className="flex-1 rounded-xl h-11 font-bold">
                     Batal
                   </Button>
@@ -103,11 +100,11 @@ export function SecurityTab({ pinCode, setPinCode, isEditingPin, setIsEditingPin
                 </div>
               </div>
             ) : (
-              <div className="p-4 bg-muted/30 rounded-2xl border border-border/50 flex items-center justify-center">
-                <p className="text-2xl tracking-[0.5em] font-black text-foreground/80">
+              <div className="p-4 bg-muted/40 rounded-xl border border-border/50 inline-flex items-center justify-center min-w-[250px]">
+                <p className="text-2xl tracking-[0.5em] font-black text-foreground/80 mt-1">
                   {pinCode ? "••••" : (
                     <span className="text-sm font-medium tracking-normal text-muted-foreground/80 italic">
-                      Keamanan Belum Diatur
+                      PIN Keamanan Belum Diatur
                     </span>
                   )}
                 </p>
@@ -117,21 +114,23 @@ export function SecurityTab({ pinCode, setPinCode, isEditingPin, setIsEditingPin
         </div>
       </div>
 
+      <div className="w-full h-px bg-border/50" />
+
       {/* 2. PENGATURAN PASSWORD (KREDENSIAL) */}
-      <div className="space-y-4">
-        <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 ml-1 flex items-center gap-2">
-          <KeyRound className="w-4 h-4" /> Kredensial Akun
+      <div>
+        <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
+          <KeyRound className="w-5 h-5" /> Kredensial Akun
         </h3>
         
-        <div className="bg-card border border-border/60 rounded-[2rem] p-5 shadow-sm transition-all hover:shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
-          <div className="flex items-start gap-4">
-            <div className="p-3 bg-blue-500/10 rounded-2xl text-blue-600 shadow-inner shrink-0 mt-1 md:mt-0">
-              <Lock className="w-5 h-5" />
+        <div className="bg-background border border-border/60 rounded-[2rem] p-6 md:p-8 shadow-sm transition-all hover:shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="flex items-start md:items-center gap-4">
+            <div className="w-12 h-12 bg-blue-500/10 rounded-2xl text-blue-600 flex items-center justify-center shrink-0">
+              <Lock className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="font-bold text-base">Atur / Ganti Password</h2>
-              <p className="text-xs text-muted-foreground mt-1 max-w-[280px] leading-relaxed">
-                Jika sebelumnya kamu mendaftar menggunakan Google, gunakan fitur ini untuk membuat kata sandi agar bisa login di Nexa Mobile.
+              <h2 className="font-bold text-base md:text-lg">Atur / Ganti Password</h2>
+              <p className="text-xs md:text-sm text-muted-foreground mt-1 max-w-sm leading-relaxed">
+                Jika kamu mendaftar via Google, gunakan fitur ini untuk membuat password independen demi login yang lebih fleksibel.
               </p>
             </div>
           </div>
@@ -140,9 +139,9 @@ export function SecurityTab({ pinCode, setPinCode, isEditingPin, setIsEditingPin
             onClick={handleResetPassword} 
             disabled={isSendingEmail}
             variant="outline"
-            className="w-full md:w-auto rounded-xl font-bold border-border shadow-sm bg-background hover:bg-blue-500/10 hover:text-blue-600 hover:border-blue-500/30 transition-all h-11 px-5"
+            className="w-full md:w-auto rounded-xl font-bold border-border shadow-sm bg-background hover:bg-blue-500/10 hover:border-blue-500/30 hover:text-blue-600 transition-all h-12 px-6"
           >
-            {isSendingEmail ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Mail className="w-4 h-4 mr-2" />}
+            {isSendingEmail ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Mail className="w-5 h-5 mr-2" />}
             Kirim Link via Email
           </Button>
         </div>

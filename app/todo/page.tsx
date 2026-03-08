@@ -5,13 +5,15 @@ import { useAuth } from "@/lib/auth-context";
 import { getUserNotes, updateNote, deleteNote, addNote } from "@/lib/notes-service";
 import { Button } from "@/components/ui/button";
 import { 
-  Loader2, CheckSquare, LayoutList, CalendarDays, KanbanSquare, Sparkles 
+  Loader2, CheckSquare, LayoutList, CalendarDays, KanbanSquare, Sparkles, Timer,
+  Clock, AlertCircle, CheckCircle2, ListTodo
 } from "lucide-react";
 import Link from "next/link";
 import { useModal } from "@/hooks/use-modal"; 
 import { PomodoroTimer } from "@/components/todo/pomodoro-timer"; 
 import { DragDropContext, DropResult } from "@hello-pangea/dnd"; 
 import { useGemini } from "@/hooks/use-gemini"; 
+import { cn } from "@/lib/utils";
 
 import { TodoItem } from "@/components/todo/types";
 import { TodoListView } from "@/components/todo/todo-list-view";
@@ -33,18 +35,18 @@ export default function TodoPage() {
   
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [viewMode, setViewMode] = useState<ViewMode>('kanban'); 
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [reviewData, setReviewData] = useState<any>(null);
 
+  const [isPomodoroOpen, setIsPomodoroOpen] = useState(false);
+
   const todayStr = useMemo(() => getLocalIsoDate(new Date()), []);
 
-  // --- Fungsi Helper untuk cek Overdue dengan memperhitungkan JAM (dueTime) ---
   const isTaskOverdue = (t: TodoItem) => {
     if (!t.dueDate) return false;
-    
     const now = new Date();
     let targetDateStr = t.dueDate;
     if (t.dueTime) {
@@ -52,7 +54,6 @@ export default function TodoPage() {
     } else {
        targetDateStr += `T23:59:59`;
     }
-    
     const targetDate = new Date(targetDateStr);
     return now > targetDate;
   };
@@ -65,9 +66,7 @@ export default function TodoPage() {
       let hasAutoUpdated = false;
 
       for (const todo of todoData) {
-        // FIX: Evaluasi overdue menggunakan helper baru
         if (!todo.isCompleted && isTaskOverdue(todo)) {
-          
           if (todo.recurrence && todo.recurrence !== 'none') {
             let nextDue = new Date(todo.dueDate!);
             const now = new Date(todayStr);
@@ -130,7 +129,6 @@ export default function TodoPage() {
       return;
     }
 
-    // FIX: Beri konteks akurat ke AI menggunakan isTaskOverdue
     const contextStr = weeklyTasks.map(t => {
       let status = "Selesai";
       if (!t.isCompleted) {
@@ -290,7 +288,6 @@ export default function TodoPage() {
       const tomorrowStr = getLocalIsoDate(tomorrow);
       updates = { isCompleted: false, dueDate: tomorrowStr, isPinned: false };
     } else if (targetCol === 'overdue') { 
-      // FIX: Jangan di-drag jika dia memang sudah masuk kategori terlewat
       if (!todo.isCompleted && isTaskOverdue(todo)) return;
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
@@ -316,6 +313,10 @@ export default function TodoPage() {
     }
   };
 
+  const togglePomodoro = () => {
+    setIsPomodoroOpen(!isPomodoroOpen);
+  };
+
   if (authLoading || loading) {
     return (
       <div className="flex justify-center items-center min-h-[60vh]">
@@ -333,115 +334,209 @@ export default function TodoPage() {
     );
   }
 
+  // --- STATISTIK ---
   const completedTodos = todos.filter(t => t.isCompleted);
   const pendingTodos = todos.filter(t => !t.isCompleted);
+  const overdueCount = pendingTodos.filter(t => isTaskOverdue(t)).length;
+  const todayCount = pendingTodos.filter(t => t.dueDate === todayStr && !isTaskOverdue(t)).length;
+  const upcomingCount = pendingTodos.filter(t => !t.dueDate || t.dueDate > todayStr).length;
   const progressPercentage = todos.length > 0 ? Math.round((completedTodos.length / todos.length) * 100) : 0;
 
   return (
-    <div className="p-4 pb-24 space-y-6 max-w-6xl mx-auto">
+    <div className="p-4 md:p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto w-full min-h-screen flex flex-col pb-32 overflow-x-hidden">
       
-      {/* Header Halaman & Progress */}
-      <div className="bg-card border border-border rounded-[2rem] p-5 shadow-sm space-y-4 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-purple-500/10 to-transparent rounded-bl-full pointer-events-none" />
+      {/* =========================================
+          HERO & COMMAND CENTER HEADER (REDESIGNED)
+          ========================================= */}
+      <div className="bg-card border border-border rounded-3xl p-6 lg:p-8 shadow-sm relative overflow-hidden flex flex-col gap-6 shrink-0 z-20">
+        
+        {/* Dekorasi Latar */}
+        <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-orange-500/10 via-rose-500/5 to-transparent rounded-bl-full pointer-events-none" />
 
-        <div className="flex items-start md:items-center justify-between flex-col md:flex-row gap-4 relative z-10">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-orange-500/10 rounded-xl"><CheckSquare className="w-6 h-6 text-orange-500" /></div>
-            <div>
-              <h1 className="text-2xl font-bold">Tugas Saya</h1>
-              <p className="text-sm text-muted-foreground">{pendingTodos.length} tugas tersisa</p>
-            </div>
-          </div>
+        {/* --- BAGIAN ATAS: Judul & Statistik --- */}
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6 lg:gap-12 relative z-10 w-full">
           
-          <div className="flex gap-2 w-full md:w-auto">
-            <Button 
-              variant="outline" 
-              onClick={handleWeeklyReview}
-              disabled={isAiLoading}
-              className="flex-1 md:flex-none rounded-xl border-purple-500/30 text-purple-600 bg-purple-500/5 hover:bg-purple-500/10 shadow-sm transition-all"
-            >
-              {isAiLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
-              {isAiLoading ? "Menganalisis..." : "Weekly Review AI"}
-            </Button>
+          {/* Kiri: Judul Utama */}
+          <div className="flex items-center gap-4 lg:w-1/3 shrink-0">
+            <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-gradient-to-br from-orange-400 to-rose-500 flex items-center justify-center text-white shadow-lg shadow-orange-500/20 shrink-0">
+              <CheckSquare className="w-7 h-7 md:w-8 md:h-8" />
+            </div>
+            <div>
+              <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-foreground leading-tight">Manajemen Tugas</h1>
+              <p className="text-sm text-muted-foreground font-medium mt-1">Selesaikan proyekmu dengan efisien.</p>
+            </div>
+          </div>
+
+          {/* Kanan: Mini Analytics Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 lg:gap-4 w-full lg:w-auto flex-1 max-w-3xl">
+            {/* Stat 1: Hari Ini */}
+            <div className="bg-muted/30 border border-border/50 rounded-xl p-3 flex flex-col justify-center">
+              <div className="flex items-center gap-1.5 text-orange-500 mb-1">
+                <Clock className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Fokus Hari Ini</span>
+              </div>
+              <span className="text-2xl font-black text-foreground">{todayCount}</span>
+            </div>
             
-            <Button asChild variant="default" className="rounded-xl bg-orange-500 hover:bg-orange-600 shadow-sm text-white md:flex hidden">
-              <Link href="/create-todo">Buat Tugas</Link>
+            {/* Stat 2: Overdue */}
+            <div className="bg-destructive/5 border border-destructive/10 rounded-xl p-3 flex flex-col justify-center">
+              <div className="flex items-center gap-1.5 text-destructive mb-1">
+                <AlertCircle className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Terlewat</span>
+              </div>
+              <span className="text-2xl font-black text-destructive">{overdueCount}</span>
+            </div>
+
+            {/* Stat 3: Mendatang */}
+            <div className="bg-muted/30 border border-border/50 rounded-xl p-3 flex flex-col justify-center">
+              <div className="flex items-center gap-1.5 text-blue-500 mb-1">
+                <ListTodo className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Mendatang</span>
+              </div>
+              <span className="text-2xl font-black text-foreground">{upcomingCount}</span>
+            </div>
+
+            {/* Stat 4: Selesai */}
+            <div className="bg-green-500/5 border border-green-500/10 rounded-xl p-3 flex flex-col justify-center">
+              <div className="flex items-center gap-1.5 text-green-600 mb-1">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Selesai</span>
+              </div>
+              <span className="text-2xl font-black text-green-600">{completedTodos.length}</span>
+            </div>
+          </div>
+
+        </div>
+
+        <div className="w-full h-px bg-border/60" />
+
+        {/* --- BAGIAN BAWAH: Progress Bar & Control Actions --- */}
+        <div className="flex flex-col lg:flex-row items-center justify-between gap-5 relative z-10 w-full">
+          
+          {/* Progress Keseluruhan */}
+          <div className="w-full lg:w-1/3 xl:w-5/12 space-y-2">
+            <div className="flex justify-between items-center text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              <span>Penyelesaian Keseluruhan</span>
+              <span className={progressPercentage === 100 ? "text-green-500" : "text-primary"}>{progressPercentage}%</span>
+            </div>
+            <div className="h-2 w-full bg-muted rounded-full overflow-hidden shadow-inner">
+              <div 
+                className={cn("h-full transition-all duration-1000 ease-out rounded-full", progressPercentage === 100 ? "bg-green-500" : "bg-gradient-to-r from-orange-400 to-rose-500")} 
+                style={{ width: `${progressPercentage}%` }} 
+              />
+            </div>
+          </div>
+
+          {/* Action Bar */}
+          <div className="flex flex-wrap lg:flex-nowrap gap-2 w-full lg:w-auto items-center justify-start lg:justify-end">
+            
+            {/* View Toggles */}
+            <div className="flex p-1 bg-muted/60 rounded-xl w-full sm:w-auto shrink-0 border border-border shadow-sm">
+              <button onClick={() => setViewMode('kanban')} className={cn("flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-1.5 text-sm font-bold rounded-lg transition-all", viewMode === 'kanban' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                <KanbanSquare className="w-4 h-4" /> <span className="hidden sm:inline">Kanban</span>
+              </button>
+              <button onClick={() => setViewMode('list')} className={cn("flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-1.5 text-sm font-bold rounded-lg transition-all", viewMode === 'list' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                <LayoutList className="w-4 h-4" /> <span className="hidden sm:inline">Daftar</span>
+              </button>
+              <button onClick={() => setViewMode('calendar')} className={cn("flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-1.5 text-sm font-bold rounded-lg transition-all", viewMode === 'calendar' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                <CalendarDays className="w-4 h-4" /> <span className="hidden sm:inline">Kalender</span>
+              </button>
+            </div>
+
+            <div className="w-px h-6 bg-border hidden sm:block mx-1" />
+
+            {/* Tools */}
+            <div className="flex gap-2 w-full sm:w-auto flex-1 sm:flex-none">
+              <Button 
+                variant={isPomodoroOpen ? "default" : "outline"} 
+                onClick={togglePomodoro}
+                className={cn(
+                  "flex-1 sm:flex-none rounded-xl shadow-sm transition-all h-10 px-4",
+                  isPomodoroOpen ? "bg-rose-500 hover:bg-rose-600 text-white border-rose-600" : "bg-background hover:bg-muted text-foreground border-border"
+                )}
+                title="Timer Fokus"
+              >
+                <Timer className={cn("w-4 h-4 sm:mr-2", isPomodoroOpen && "animate-pulse")} />
+                <span className="hidden sm:inline font-semibold">Pomodoro</span>
+              </Button>
+
+              <Button 
+                variant="outline" 
+                onClick={handleWeeklyReview}
+                disabled={isAiLoading || todos.length === 0}
+                className="flex-1 sm:flex-none rounded-xl border-purple-500/30 text-purple-600 dark:text-purple-400 bg-purple-500/5 hover:bg-purple-500/10 shadow-sm transition-all h-10 px-4"
+              >
+                {isAiLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                {isAiLoading ? "Menganalisis..." : <span className="font-bold">Review AI</span>}
+              </Button>
+              
+              <Button asChild variant="default" className="rounded-xl bg-orange-500 hover:bg-orange-600 shadow-md text-white hidden xl:flex shrink-0 h-10 font-bold px-6">
+                <Link href="/create-todo">Buat Tugas Baru</Link>
+              </Button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* =========================================
+          KONTEN UTAMA (VIEWS)
+          ========================================= */}
+      <div className="flex-1 w-full relative">
+        {todos.length === 0 ? (
+          <div className="text-center py-24 px-4 border-2 border-dashed border-border rounded-[2rem] bg-muted/10 h-full flex flex-col items-center justify-center">
+            <div className="w-20 h-20 bg-orange-500/10 rounded-3xl flex items-center justify-center mb-6 shadow-sm border border-orange-500/20">
+              <CheckSquare className="w-10 h-10 text-orange-500" />
+            </div>
+            <h2 className="text-2xl font-bold mb-3">Workspace Bersih</h2>
+            <p className="text-muted-foreground mb-8 max-w-sm mx-auto">Belum ada tugas yang dibuat. Mulai rencanakan hari produktifmu sekarang!</p>
+            <Button asChild variant="default" className="rounded-xl bg-orange-500 hover:bg-orange-600 shadow-md text-white font-bold h-12 px-8 text-base transition-transform hover:scale-105">
+              <Link href="/create-todo">Buat Tugas Pertama</Link>
             </Button>
           </div>
-        </div>
-
-        {/* Tab Navigasi Mode */}
-        <div className="flex p-1 bg-muted rounded-xl w-full md:w-fit relative z-10">
-          <button onClick={() => setViewMode('list')} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold rounded-lg transition-all ${viewMode === 'list' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
-            <LayoutList className="w-4 h-4" /> <span className="hidden md:inline">Daftar</span>
-          </button>
-          <button onClick={() => setViewMode('calendar')} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold rounded-lg transition-all ${viewMode === 'calendar' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
-            <CalendarDays className="w-4 h-4" /> <span className="hidden md:inline">Kalender</span>
-          </button>
-          <button onClick={() => setViewMode('kanban')} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold rounded-lg transition-all ${viewMode === 'kanban' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
-            <KanbanSquare className="w-4 h-4" /> <span className="hidden md:inline">Kanban</span>
-          </button>
-        </div>
-
-        {todos.length > 0 && viewMode === 'list' && (
-          <div className="space-y-2 pt-2 relative z-10">
-            <div className="flex justify-between text-xs font-medium">
-              <span>Progress Harian</span>
-              <span className="text-primary">{progressPercentage}% Selesai</span>
+        ) : (
+          <DragDropContext onDragEnd={onDragEnd}>
+            <div className="w-full h-full pt-2">
+              {viewMode === 'list' && (
+                <TodoListView 
+                  todos={todos} 
+                  todayStr={todayStr} 
+                  onToggle={toggleComplete} 
+                  onDelete={handleDelete} 
+                  onTogglePin={handleTogglePin} 
+                />
+              )}
+              {viewMode === 'calendar' && (
+                <TodoCalendarView 
+                  todos={todos} 
+                  todayStr={todayStr} 
+                  currentMonth={currentMonth} 
+                  setCurrentMonth={setCurrentMonth} 
+                  selectedDate={selectedDate} 
+                  setSelectedDate={setSelectedDate} 
+                  onToggle={toggleComplete} 
+                  onDelete={handleDelete} 
+                />
+              )}
+              {viewMode === 'kanban' && (
+                <TodoKanbanView 
+                  todos={todos} 
+                  todayStr={todayStr} 
+                  onToggle={toggleComplete} 
+                  onDelete={handleDelete} 
+                />
+              )}
             </div>
-            <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-              <div className="h-full bg-primary transition-all duration-1000 ease-out rounded-full" style={{ width: `${progressPercentage}%` }} />
-            </div>
-          </div>
+          </DragDropContext>
         )}
       </div>
 
-      {/* Konten Utama (Views) */}
-      {todos.length === 0 ? (
-        <div className="text-center py-16 px-4 border border-dashed border-border rounded-[2rem] bg-muted/20">
-          <p className="text-muted-foreground mb-4">Belum ada tugas yang dibuat.</p>
-          <Button asChild variant="default" className="rounded-full bg-orange-500 hover:bg-orange-600 text-white font-bold">
-            <Link href="/create-todo">Buat Tugas Pertama</Link>
-          </Button>
-        </div>
-      ) : (
-        <DragDropContext onDragEnd={onDragEnd}>
-          <div className="mt-6">
-            {viewMode === 'list' && (
-              <TodoListView 
-                todos={todos} 
-                todayStr={todayStr} 
-                onToggle={toggleComplete} 
-                onDelete={handleDelete} 
-                onTogglePin={handleTogglePin} 
-              />
-            )}
-            {viewMode === 'calendar' && (
-              <TodoCalendarView 
-                todos={todos} 
-                todayStr={todayStr} 
-                currentMonth={currentMonth} 
-                setCurrentMonth={setCurrentMonth} 
-                selectedDate={selectedDate} 
-                setSelectedDate={setSelectedDate} 
-                onToggle={toggleComplete} 
-                onDelete={handleDelete} 
-              />
-            )}
-            {viewMode === 'kanban' && (
-              <TodoKanbanView 
-                todos={todos} 
-                todayStr={todayStr} 
-                onToggle={toggleComplete} 
-                onDelete={handleDelete} 
-              />
-            )}
-          </div>
-        </DragDropContext>
-      )}
-
       {/* Ekstra UI Bawah */}
-      <PomodoroTimer />
+      
+      {/* FIX POMODORO: Kita gunakan implementasi HANYA 1 Komponen dan menyuntikkan properti isOpen.
+          Jangan pernah merender kondisional {isPomodoroOpen && <PomodoroTimer />} karena ini
+          akan me-reset state internal dari widget saat dimount/unmount. */}
+      <PomodoroTimer isOpen={isPomodoroOpen} onClose={() => setIsPomodoroOpen(false)} />
       
       <WeeklyReviewModal 
         reviewData={reviewData} 

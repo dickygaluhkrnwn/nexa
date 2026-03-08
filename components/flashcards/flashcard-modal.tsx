@@ -1,18 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { X, ChevronLeft, ChevronRight, History } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, History, BrainCircuit, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FlashcardViewer, Flashcard } from "./flashcard-viewer";
 
 interface FlashcardModalProps {
-  history: any[][]; // Array of Flashcard arrays (Histori)
+  history: any[][]; 
   onClose: () => void;
 }
 
 export function FlashcardModal({ history, onClose }: FlashcardModalProps) {
-  // State untuk melacak indeks histori mana yang sedang dilihat
-  // 0 adalah versi terbaru (paling depan di array)
   const [currentIndex, setCurrentIndex] = useState(0);
 
   if (!history || history.length === 0) return null;
@@ -21,88 +19,107 @@ export function FlashcardModal({ history, onClose }: FlashcardModalProps) {
 
   const handlePrevVersion = () => {
     if (currentIndex < history.length - 1) {
-      setCurrentIndex(prev => prev + 1); // Mundur ke versi lebih lama (index bertambah)
+      setCurrentIndex(prev => prev + 1); 
     }
   };
 
   const handleNextVersion = () => {
     if (currentIndex > 0) {
-      setCurrentIndex(prev => prev - 1); // Maju ke versi lebih baru (index berkurang)
+      setCurrentIndex(prev => prev - 1); 
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-300">
       {/* Latar Belakang Blur */}
       <div className="absolute inset-0 bg-background/80 backdrop-blur-md" onClick={onClose} />
       
-      {/* --- PANEL NAVIGASI RIWAYAT (Hanya tampil jika ada > 1 versi) --- */}
-      {history.length > 1 && (
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-3 bg-card/90 backdrop-blur-xl px-2 py-1.5 rounded-full border border-border shadow-lg animate-in slide-in-from-top-4">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="w-8 h-8 rounded-full hover:bg-muted"
-            onClick={handlePrevVersion}
-            disabled={currentIndex === history.length - 1}
-            title="Versi Sebelumnya"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-          
-          <div className="flex items-center gap-1.5 px-2">
-            <History className="w-3.5 h-3.5 text-muted-foreground" />
-            <span className="text-xs font-bold whitespace-nowrap">
-              Versi {history.length - currentIndex} <span className="text-muted-foreground font-medium">/ {history.length}</span>
-            </span>
+      {/* Kontainer Utama (Split Layout Desktop) */}
+      <div className="relative w-full max-w-5xl bg-card border border-border shadow-2xl rounded-[2rem] overflow-hidden flex flex-col md:flex-row h-[90vh] max-h-[800px] z-10 animate-in zoom-in-95">
+        
+        {/* Tombol Tutup Global */}
+        <button 
+          onClick={onClose} 
+          className="absolute top-4 right-4 md:top-6 md:right-6 p-2 bg-muted/50 md:bg-muted text-muted-foreground rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors z-50"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        {/* --- PANEL KIRI (SIDEBAR INFO & HISTORY) --- */}
+        <div className="md:w-1/3 bg-muted/20 border-b md:border-b-0 md:border-r border-border/50 p-6 md:p-8 flex flex-col shrink-0 relative overflow-hidden">
+          {/* Dekorasi Glow */}
+          <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-indigo-500 to-purple-500" />
+          <div className="absolute -top-10 -left-10 w-40 h-40 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="flex items-center gap-3 mb-6 relative z-10 mt-2">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20 shrink-0">
+              <BrainCircuit className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="font-extrabold text-lg text-foreground leading-tight">Uji Ingatan</h2>
+              <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mt-0.5">Sesi Pembelajaran</p>
+            </div>
           </div>
 
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="w-8 h-8 rounded-full hover:bg-muted"
-            onClick={handleNextVersion}
-            disabled={currentIndex === 0}
-            title="Versi Lebih Baru"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-          
-          {/* Indikator "Terbaru" jika berada di index 0 */}
-          {currentIndex === 0 && (
-            <span className="absolute -top-1 -right-1 flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-primary border border-background"></span>
-            </span>
+          <p className="text-sm text-muted-foreground leading-relaxed mb-8 relative z-10">
+            Latih pemahamanmu dengan metode <em>Spaced Repetition</em>. Kartu-kartu ini diekstrak otomatis oleh AI dari dokumen catatanmu.
+          </p>
+
+          {/* Panel Kontrol Versi */}
+          {history.length > 1 ? (
+            <div className="bg-background border border-border shadow-sm rounded-2xl p-4 mt-auto relative z-10">
+              <div className="flex items-center gap-2 mb-3">
+                <History className="w-4 h-4 text-primary" />
+                <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">Versi Dokumen</h3>
+                {currentIndex === 0 && (
+                  <span className="ml-auto text-[9px] bg-primary/10 text-primary px-2 py-0.5 rounded-md font-bold uppercase tracking-wider flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" /> Terbaru
+                  </span>
+                )}
+              </div>
+              
+              <div className="flex items-center justify-between bg-muted/50 p-1.5 rounded-xl border border-border/50">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="w-8 h-8 rounded-lg hover:bg-background shadow-sm"
+                  onClick={handlePrevVersion}
+                  disabled={currentIndex === history.length - 1}
+                  title="Versi Lebih Lama"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                
+                <span className="text-sm font-bold">
+                  V{history.length - currentIndex} <span className="text-muted-foreground font-medium">/ {history.length}</span>
+                </span>
+
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="w-8 h-8 rounded-lg hover:bg-background shadow-sm"
+                  onClick={handleNextVersion}
+                  disabled={currentIndex === 0}
+                  title="Versi Lebih Baru"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-auto p-4 bg-primary/5 border border-primary/10 rounded-2xl relative z-10 text-center">
+              <p className="text-xs font-medium text-primary">Tulis lebih banyak catatan untuk menghasilkan versi kuis yang lebih beragam.</p>
+            </div>
           )}
         </div>
-      )}
 
-      {/* Kontainer Utama */}
-      <div className="relative w-full max-w-2xl bg-card border border-border shadow-2xl rounded-[2rem] overflow-hidden flex flex-col h-[85vh] md:h-auto max-h-[800px] z-10 animate-in slide-in-from-bottom-8 mt-12 md:mt-0">
-        
-        {/* Header Modal */}
-        <div className="flex items-center justify-between p-4 border-b border-border/50 bg-muted/30">
-          <div>
-            <h2 className="font-bold text-foreground">Sesi Pembelajaran</h2>
-            <p className="text-xs text-muted-foreground font-medium">Uji pemahamanmu dari catatan ini</p>
-          </div>
-          <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors">
-            <X className="w-5 h-5" />
-          </Button>
-        </div>
-
-        {/* Area Konten Flashcard */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex items-center justify-center relative">
-           
-           {/* Menambahkan key berdasarkan currentIndex agar komponen FlashcardViewer ter-reset (kembali ke kartu pertama) saat user mengganti versi */}
+        {/* --- PANEL KANAN (AREA FLASHCARD) --- */}
+        <div className="md:w-2/3 flex-1 bg-background relative overflow-y-auto custom-scrollbar flex items-center justify-center p-6 md:p-12">
+           {/* Key prop memaksa React me-reset komponen FlashcardViewer saat versi diganti */}
            <FlashcardViewer 
              key={`viewer-version-${currentIndex}`} 
              cards={currentFlashcards} 
-             onComplete={() => {
-                // Apa yang terjadi setelah kartu habis?
-                // Untuk sekarang kita biarkan user bisa klik tutup (X) sendiri
-             }} 
+             onComplete={onClose} 
            />
         </div>
 
