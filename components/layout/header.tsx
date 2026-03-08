@@ -26,27 +26,9 @@ interface NotificationItem {
   todoId: string;
 }
 
-export function Header() {
-  const { theme, setTheme } = useTheme();
-  const { user, logout } = useAuth();
-  const { showAlert, showConfirm } = useModal(); 
-  const [mounted, setMounted] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  
-  // --- STATE NOTIFIKASI ---
-  const [isNotifOpen, setIsNotifOpen] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [readNotifs, setReadNotifs] = useState<string[]>([]); 
-  const [pushPermission, setPushPermission] = useState<NotificationPermission | "default">("default");
-
-  // State untuk mendeteksi arah scroll
-  const [isVisible, setIsVisible] = useState(true);
-  const [lastScrollY, setLastScrollY] = useState(0);
-
-  // State untuk PWA Install Prompt
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-
-  // --- HOOKS PENCARIAN GLOBAL ---
+// --- KOMPONEN PENCARIAN TERISOLASI DENGAN SUSPENSE ---
+// Untuk menghindari Error Next.js "Missing Suspense boundary with useSearchParams" saat Build
+function SearchBar() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -71,6 +53,46 @@ export function Header() {
     }
     router.replace(`${pathname}?${params.toString()}`);
   };
+
+  return (
+    <div className="relative w-full group">
+      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+      <input 
+        type="text" 
+        placeholder="Cari catatan, tugas, dll..." 
+        value={searchValue}
+        onChange={handleSearch}
+        className="w-full h-10 pl-11 pr-12 rounded-full bg-muted/50 border border-transparent hover:bg-muted focus:bg-background focus:border-primary/30 focus:ring-4 focus:ring-primary/10 transition-all outline-none text-sm placeholder:text-muted-foreground/70 shadow-sm" 
+      />
+      <button 
+        title="Filter Pencarian"
+        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground focus:text-primary transition-colors"
+      >
+        <SlidersHorizontal className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+export function Header() {
+  const { theme, setTheme } = useTheme();
+  const { user, logout } = useAuth();
+  const { showAlert, showConfirm } = useModal(); 
+  const [mounted, setMounted] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  
+  // --- STATE NOTIFIKASI ---
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [readNotifs, setReadNotifs] = useState<string[]>([]); 
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | "default">("default");
+
+  // State untuk mendeteksi arah scroll
+  const [isVisible, setIsVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
+
+  // State untuk PWA Install Prompt
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -317,24 +339,13 @@ export function Header() {
           <span className="font-bold text-lg tracking-tight">Nexa</span>
         </div>
 
-        {/* Desktop: Search Bar Global (Elegan, Lebar & Clean) */}
+        {/* Desktop: Search Bar Global */}
         <div className="hidden md:flex flex-1 items-center max-w-2xl mx-4 lg:mx-8">
-          <div className="relative w-full group">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-            <input 
-              type="text" 
-              placeholder="Cari catatan, tugas, dll..." 
-              value={searchValue}
-              onChange={handleSearch}
-              className="w-full h-10 pl-11 pr-12 rounded-full bg-muted/50 border border-transparent hover:bg-muted focus:bg-background focus:border-primary/30 focus:ring-4 focus:ring-primary/10 transition-all outline-none text-sm placeholder:text-muted-foreground/70 shadow-sm" 
-            />
-            <button 
-              title="Filter Pencarian"
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground focus:text-primary transition-colors"
-            >
-              <SlidersHorizontal className="w-4 h-4" />
-            </button>
-          </div>
+          <Suspense fallback={
+            <div className="w-full h-10 rounded-full bg-muted/50 animate-pulse border border-border" />
+          }>
+            <SearchBar />
+          </Suspense>
         </div>
 
         <div className="flex items-center gap-2 md:gap-3">
@@ -372,7 +383,7 @@ export function Header() {
               "p-2 rounded-full hover:bg-muted md:p-1 md:pr-4 md:border md:border-border/50 md:bg-muted/30 md:hover:bg-muted md:rounded-full md:gap-2"
             )}
           >
-            {/* Tampilan Desktop (Menarik Foto Profil secara dinamis) */}
+            {/* Tampilan Desktop */}
             <div className="hidden md:flex items-center justify-center w-8 h-8 rounded-full overflow-hidden bg-gradient-to-tr from-indigo-500 to-purple-500 text-white shadow-sm shrink-0 border border-border">
               {user?.isAnonymous ? (
                 <User className="w-4 h-4" />
