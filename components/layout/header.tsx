@@ -1,20 +1,22 @@
 "use client";
 
 import { 
-  Moon, Sun, Menu, X, Settings, Download, LogOut, 
+  Moon, Sun, Menu, X, Settings, Download, LogOut, LogIn,
   Heart, Info, MessageSquareQuote, 
-  Bell, BellRing, CalendarClock, AlertTriangle, Check
+  Bell, BellRing, CalendarClock, AlertTriangle, Check,
+  Search, User, SlidersHorizontal
 } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { getUserNotes } from "@/lib/notes-service";
 import { doc, getDoc, updateDoc, setDoc, arrayUnion } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { useModal } from "@/hooks/use-modal"; // <-- Import Global Modal Hook
+import { useModal } from "@/hooks/use-modal";
 
 interface NotificationItem {
   id: string;
@@ -27,14 +29,14 @@ interface NotificationItem {
 export function Header() {
   const { theme, setTheme } = useTheme();
   const { user, logout } = useAuth();
-  const { showAlert, showConfirm } = useModal(); // <-- Panggil fungsi Modal Global
+  const { showAlert, showConfirm } = useModal(); 
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   
   // --- STATE NOTIFIKASI ---
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [readNotifs, setReadNotifs] = useState<string[]>([]); // Menyimpan ID notif yang sudah dibaca
+  const [readNotifs, setReadNotifs] = useState<string[]>([]); 
   const [pushPermission, setPushPermission] = useState<NotificationPermission | "default">("default");
 
   // State untuk mendeteksi arah scroll
@@ -44,21 +46,44 @@ export function Header() {
   // State untuk PWA Install Prompt
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
+  // --- HOOKS PENCARIAN GLOBAL ---
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [searchValue, setSearchValue] = useState("");
+
+  // Sinkronisasi nilai input dengan URL parameter
+  useEffect(() => {
+    const q = searchParams?.get("q") || "";
+    setSearchValue(q);
+  }, [searchParams]);
+
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setSearchValue(val);
+    
+    // Update URL Parameters secara real-time
+    const params = new URLSearchParams(searchParams?.toString() || "");
+    if (val) {
+      params.set("q", val);
+    } else {
+      params.delete("q");
+    }
+    router.replace(`${pathname}?${params.toString()}`);
+  };
+
   useEffect(() => {
     setMounted(true);
     
-    // Cek status izin notifikasi perangkat
     if ('Notification' in window) {
       setPushPermission(Notification.permission);
     }
 
-    // Ambil cache dari Local Storage untuk kecepatan (agar UI tidak delay)
     const storedReadNotifs = localStorage.getItem('nexa_read_notifs');
     if (storedReadNotifs) {
       setReadNotifs(JSON.parse(storedReadNotifs));
     }
 
-    // PWA Prompt
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -67,7 +92,6 @@ export function Header() {
     return () => window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
   }, []);
 
-  // --- SINKRONISASI NOTIFIKASI YANG DIBACA DARI FIREBASE (LINTAS PERANGKAT) ---
   useEffect(() => {
     if (!user) return;
 
@@ -79,7 +103,6 @@ export function Header() {
         if (userSnap.exists()) {
           const data = userSnap.data();
           if (data.readNotifications && Array.isArray(data.readNotifications)) {
-            // Gabungkan yang ada di localStorage dan di Firebase untuk mencegah kehilangan data
             setReadNotifs(prev => {
               const combined = Array.from(new Set([...prev, ...data.readNotifications]));
               localStorage.setItem('nexa_read_notifs', JSON.stringify(combined));
@@ -94,9 +117,7 @@ export function Header() {
 
     syncReadNotifications();
   }, [user]);
-  // -------------------------------------------------------------------------
 
-  // --- LOGIKA MENGAMBIL DATA NOTIFIKASI TO-DO ---
   useEffect(() => {
     const fetchNotifications = async () => {
       if (!user) {
@@ -137,12 +158,9 @@ export function Header() {
 
         setNotifications(newNotifs);
 
-        // AUTO-PUSH NOTIFICATION SYSTEM
         if (Notification.permission === 'granted' && newNotifs.length > 0) {
           const lastPushed = localStorage.getItem('nexa_last_push_date');
           if (lastPushed !== todayStr) {
-            
-            // Cek pengaturan getaran user dari Firestore sebelum nge-push
             let useVibration = true;
             try {
               const userRef = doc(db, "users", user.uid);
@@ -167,17 +185,14 @@ export function Header() {
     fetchNotifications();
   }, [user, isNotifOpen]);
 
-  // --- FUNGSI KLIK NOTIFIKASI (MENGHILANGKAN TITIK MERAH & BACKUP KE DATABASE) ---
   const handleNotifClick = async (notifId: string) => {
     setIsNotifOpen(false);
     
     if (!readNotifs.includes(notifId)) {
-      // 1. Optimistic UI Update (Cepat tanggap di UI lokal)
       const updatedReadNotifs = [...readNotifs, notifId];
       setReadNotifs(updatedReadNotifs);
       localStorage.setItem('nexa_read_notifs', JSON.stringify(updatedReadNotifs));
 
-      // 2. Backup ke Database Firestore agar HP/Perangkat lain tersinkronisasi
       if (user) {
         try {
           const userRef = doc(db, "users", user.uid);
@@ -185,7 +200,6 @@ export function Header() {
             readNotifications: arrayUnion(notifId)
           });
         } catch (error: any) {
-          // Jika dokumen user belum pernah dibuat, kita buatkan sekalian
           if (error.code === 'not-found') {
             try {
               const userRef = doc(db, "users", user.uid);
@@ -203,7 +217,6 @@ export function Header() {
 
   const unreadCount = notifications.filter(n => !readNotifs.includes(n.id)).length;
 
-  // --- FUNGSI TRIGGER NOTIFIKASI SISTEM (HP/DESKTOP) ---
   const triggerSystemNotification = async (title: string, body: string, vibrate: boolean = true) => {
     if (!('Notification' in window)) return;
 
@@ -214,7 +227,7 @@ export function Header() {
           await registration.showNotification(title, {
             body: body,
             icon: "/icon-192x192.png", 
-            vibrate: vibrate ? [200, 100, 200, 100, 200] : [], // Pola getar menyesuaikan setting
+            vibrate: vibrate ? [200, 100, 200, 100, 200] : [], 
             tag: "nexa-reminder",
             requireInteraction: true 
           } as any); 
@@ -238,7 +251,6 @@ export function Header() {
       setPushPermission(permission);
 
       if (permission === 'granted') {
-        // Ambil setting getaran untuk notif percobaan
         let useVibration = true;
         if (user) {
           const userRef = doc(db, "users", user.uid);
@@ -256,7 +268,6 @@ export function Header() {
     }
   };
 
-  // Logika Scroll untuk Header
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
@@ -292,20 +303,41 @@ export function Header() {
   return (
     <header 
       className={cn(
-        "sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 transition-transform duration-300",
+        "sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60 transition-transform duration-300 print:hidden",
         isVisible ? "translate-y-0" : "-translate-y-full"
       )}
     >
-      <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto relative">
+      <div className="flex items-center justify-between h-16 px-4 md:px-6 w-full max-w-6xl mx-auto gap-4 relative">
         
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400 to-purple-600 flex items-center justify-center text-white font-bold text-lg">
+        {/* Mobile: Brand Logo | Desktop: Sembunyi karena ada di Sidebar */}
+        <div className="flex items-center gap-2 md:hidden">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
             N
           </div>
           <span className="font-bold text-lg tracking-tight">Nexa</span>
         </div>
 
-        <div className="flex items-center gap-1">
+        {/* Desktop: Search Bar Global (Elegan, Lebar & Clean) */}
+        <div className="hidden md:flex flex-1 items-center max-w-2xl mx-4 lg:mx-8">
+          <div className="relative w-full group">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+            <input 
+              type="text" 
+              placeholder="Cari catatan, tugas, dll..." 
+              value={searchValue}
+              onChange={handleSearch}
+              className="w-full h-10 pl-11 pr-12 rounded-full bg-muted/50 border border-transparent hover:bg-muted focus:bg-background focus:border-primary/30 focus:ring-4 focus:ring-primary/10 transition-all outline-none text-sm placeholder:text-muted-foreground/70 shadow-sm" 
+            />
+            <button 
+              title="Filter Pencarian"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground focus:text-primary transition-colors"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 md:gap-3">
           {/* Tombol Notifikasi */}
           {user && (
             <button
@@ -329,15 +361,29 @@ export function Header() {
             </button>
           )}
 
-          {/* Tombol Menu Toggle */}
+          {/* Mobile: Hamburger | Desktop: Profile Pill */}
           <button
             onClick={() => {
               setIsMenuOpen(!isMenuOpen);
               setIsNotifOpen(false);
             }}
-            className="p-2 rounded-full hover:bg-muted transition-colors"
+            className={cn(
+              "flex items-center transition-all duration-200",
+              "p-2 rounded-full hover:bg-muted md:p-1 md:pr-4 md:border md:border-border/50 md:bg-muted/30 md:hover:bg-muted md:rounded-full md:gap-2"
+            )}
           >
-            {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            {/* Tampilan Desktop */}
+            <div className="hidden md:flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white shadow-sm">
+              <User className="w-4 h-4" />
+            </div>
+            <span className="hidden md:block text-sm font-medium text-foreground truncate max-w-[120px]">
+              {user?.isAnonymous ? "Tamu" : (user?.displayName || "Profil")}
+            </span>
+
+            {/* Tampilan Mobile */}
+            <div className="md:hidden">
+              {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </div>
           </button>
         </div>
 
@@ -345,8 +391,8 @@ export function Header() {
         {isNotifOpen && user && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setIsNotifOpen(false)}></div>
-            <div className="absolute top-14 right-4 mt-2 w-[300px] max-w-[calc(100vw-32px)] rounded-2xl border border-border bg-card shadow-2xl py-2 animate-in fade-in slide-in-from-top-2 z-50 overflow-hidden flex flex-col max-h-[80vh]">
-              <div className="px-4 py-3 border-b border-border/50 bg-muted/30 flex items-center justify-between sticky top-0">
+            <div className="absolute top-16 right-4 md:right-6 mt-2 w-[320px] max-w-[calc(100vw-32px)] rounded-2xl border border-border/60 bg-background/95 backdrop-blur-xl shadow-2xl py-2 animate-in fade-in slide-in-from-top-2 z-50 overflow-hidden flex flex-col max-h-[80vh]">
+              <div className="px-4 py-3 border-b border-border/50 bg-muted/20 flex items-center justify-between sticky top-0">
                 <p className="font-bold text-sm">Notifikasi</p>
                 {unreadCount > 0 && (
                   <div className="text-xs bg-red-500/10 text-red-500 px-2 py-0.5 rounded-full font-bold">
@@ -389,12 +435,11 @@ export function Header() {
                 )}
               </div>
 
-              {/* Banner Setup Push Notification */}
               {pushPermission !== 'granted' && (
                 <div className="p-3 bg-blue-500/5 border-t border-blue-500/10 mt-auto">
                   <p className="text-[10px] text-muted-foreground mb-2 text-center">Nyalakan notifikasi perangkat agar HP mu bergetar untuk jadwal penting.</p>
                   <Button onClick={handleRequestPushPermission} size="sm" className="w-full h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
-                    <BellRing className="w-3 h-3 mr-2" /> Aktifkan Notifikasi HP
+                    <BellRing className="w-3 h-3 mr-2" /> Aktifkan Notifikasi
                   </Button>
                 </div>
               )}
@@ -406,51 +451,62 @@ export function Header() {
         {isMenuOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)}></div>
-            <div className="absolute top-14 right-4 mt-2 w-52 rounded-2xl border border-border bg-card shadow-2xl py-2 animate-in fade-in slide-in-from-top-2 z-50">
-              <div className="px-4 py-2 border-b border-border/50 mb-1 flex items-center gap-2">
-                <Settings className="w-4 h-4 text-muted-foreground" />
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Pengaturan</p>
+            <div className="absolute top-16 right-4 md:right-6 mt-2 w-56 rounded-2xl border border-border/60 bg-background/95 backdrop-blur-xl shadow-2xl py-2 animate-in fade-in slide-in-from-top-2 z-50 overflow-hidden">
+              <div className="px-4 py-3 border-b border-border/50 mb-1 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white flex items-center justify-center shadow-sm">
+                  <User className="w-4 h-4" />
+                </div>
+                <div className="flex flex-col">
+                  <p className="text-sm font-bold text-foreground truncate max-w-[120px]">{user?.isAnonymous ? "Pengguna Tamu" : (user?.displayName || "Pengguna Nexa")}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Pengaturan</p>
+                </div>
               </div>
               
               <button
                 onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-                className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors"
+                className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium"
               >
                 {mounted && theme === "dark" ? (
-                  <><Sun className="h-4 w-4 mr-3 text-orange-400" /><span className="font-medium">Mode Terang</span></>
+                  <><Sun className="h-4 w-4 mr-3 text-orange-400" /><span>Mode Terang</span></>
                 ) : (
-                  <><Moon className="h-4 w-4 mr-3 text-blue-500" /><span className="font-medium">Mode Gelap</span></>
+                  <><Moon className="h-4 w-4 mr-3 text-blue-500" /><span>Mode Gelap</span></>
                 )}
               </button>
 
               <Link href="/about" onClick={() => setIsMenuOpen(false)}>
-                <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium border-t border-border/50">
+                <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium border-t border-border/30">
                   <Info className="h-4 w-4 mr-3 text-blue-500" /><span>Tentang Aplikasi</span>
                 </div>
               </Link>
 
               <Link href="/feedback" onClick={() => setIsMenuOpen(false)}>
-                <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium border-t border-border/50">
+                <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium border-t border-border/30">
                   <MessageSquareQuote className="h-4 w-4 mr-3 text-green-500" /><span>Kirim Masukan</span>
                 </div>
               </Link>
 
               <Link href="/funding" onClick={() => setIsMenuOpen(false)}>
-                <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-rose-500/10 transition-colors text-rose-500 font-bold border-t border-border/50">
+                <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-rose-500/10 transition-colors text-rose-500 font-bold border-t border-border/30">
                   <Heart className="h-4 w-4 mr-3 fill-rose-500 animate-pulse" /><span>Dukung Nexa</span>
                 </div>
               </Link>
 
               {deferredPrompt && (
-                <button onClick={handleInstallClick} className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors text-primary font-medium border-t border-border/50">
+                <button onClick={handleInstallClick} className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors text-primary font-medium border-t border-border/30">
                   <Download className="h-4 w-4 mr-3" /><span>Unduh Aplikasi</span>
                 </button>
               )}
 
-              {user && (
-                <button onClick={handleLogout} className="w-full flex items-center px-4 py-3 text-sm hover:bg-destructive/10 transition-colors text-destructive font-medium border-t border-border/50">
+              {user && !user.isAnonymous ? (
+                <button onClick={handleLogout} className="w-full flex items-center px-4 py-3 text-sm hover:bg-destructive/10 transition-colors text-destructive font-medium border-t border-border/30">
                   <LogOut className="h-4 w-4 mr-3" /><span>Keluar Akun</span>
                 </button>
+              ) : (
+                <Link href="/profile" onClick={() => setIsMenuOpen(false)}>
+                  <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-primary/10 transition-colors text-primary font-medium border-t border-border/30">
+                    <LogIn className="h-4 w-4 mr-3" /><span>Masuk / Daftar</span>
+                  </div>
+                </Link>
               )}
             </div>
           </>

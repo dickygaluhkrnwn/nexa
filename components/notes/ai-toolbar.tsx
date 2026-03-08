@@ -1,5 +1,13 @@
+"use client";
+
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, MessageSquare, Network, Sparkles, Tag as TagIcon, Wand2, Mic, Brain } from "lucide-react"; // <-- TAMBAH BRAIN ICON
+import { 
+  Loader2, MessageSquare, Network, Sparkles, 
+  Tag as TagIcon, Wand2, Mic, Brain, 
+  ChevronDown, ChevronUp, Bot
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface AiToolbarProps {
   onOpenChat: () => void;
@@ -7,22 +15,14 @@ interface AiToolbarProps {
   onAutoFormat: () => void;
   onGenerateTags: () => void;
   onSummarize: () => void;
-  
-  // --- TAMBAHAN UNTUK FLASHCARDS ---
   onGenerateFlashcards?: () => void; 
-  
   isGeneratingMindMap: boolean;
   isFormatting: boolean;
   isGeneratingTags: boolean;
   isSummarizing: boolean;
-  
-  // --- TAMBAHAN UNTUK FLASHCARDS ---
   isGeneratingFlashcards?: boolean; 
-  
   isContentEmpty: boolean;
   isTitleAndContentEmpty: boolean;
-  
-  // Tambahan Props untuk Smart Voice Memos
   onVoiceRecord?: () => void;
   isRecording?: boolean;
   isAnalyzingVoice?: boolean;
@@ -30,90 +30,123 @@ interface AiToolbarProps {
 }
 
 export function AiToolbar({
-  onOpenChat,
-  onGenerateMindMap,
-  onAutoFormat,
-  onGenerateTags,
-  onSummarize,
-  onGenerateFlashcards, // <-- AMBIL PROPS
-  isGeneratingMindMap,
-  isFormatting,
-  isGeneratingTags,
-  isSummarizing,
-  isGeneratingFlashcards, // <-- AMBIL PROPS
-  isContentEmpty,
-  isTitleAndContentEmpty,
-  onVoiceRecord,
-  isRecording,
-  isAnalyzingVoice,
-  onStopRecording
+  onOpenChat, onGenerateMindMap, onAutoFormat, onGenerateTags, onSummarize, onGenerateFlashcards,
+  isGeneratingMindMap, isFormatting, isGeneratingTags, isSummarizing, isGeneratingFlashcards, 
+  isContentEmpty, isTitleAndContentEmpty,
+  onVoiceRecord, isRecording, isAnalyzingVoice, onStopRecording
 }: AiToolbarProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Tutup menu jika klik di luar area menu
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const anyLoading = isGeneratingMindMap || isFormatting || isGeneratingTags || isSummarizing || isGeneratingFlashcards || isAnalyzingVoice;
+
   return (
-    <div className="bg-gradient-to-r from-primary/5 via-purple-500/5 to-cyan-500/5 border border-primary/20 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 print:hidden">
-      <div className="flex items-center gap-2.5 px-1">
-        <div className="p-1.5 bg-primary/20 rounded-lg text-primary shadow-sm">
-          <Sparkles className="w-4 h-4" />
-        </div>
-        <div>
-          <p className="text-xs font-bold text-foreground">Nexa AI Assistant</p>
-          <p className="text-[10px] text-muted-foreground">Bantu rapikan catatanmu</p>
-        </div>
-      </div>
+    <div className="relative inline-block text-left" ref={menuRef}>
       
-      <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-        
-        {/* Tombol Smart Voice Memos */}
-        {onVoiceRecord && (
-          isRecording ? (
-            <Button 
-              variant="default" 
-              size="sm" 
-              onClick={onStopRecording} 
-              className="flex-1 sm:flex-none rounded-xl bg-red-500 hover:bg-red-600 text-white border-0 shadow-md animate-pulse whitespace-nowrap"
-            >
-              <div className="w-2 h-2 rounded-full bg-white mr-2" /> Berhenti Rekam
-            </Button>
-          ) : (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={onVoiceRecord} 
-              disabled={isAnalyzingVoice} 
-              className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 shadow-sm whitespace-nowrap"
-            >
-              {isAnalyzingVoice ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Mic className="w-3 h-3 mr-1.5" />} 
-              {isAnalyzingVoice ? "Menganalisis..." : "Suara Pintar"}
-            </Button>
-          )
+      {/* Tombol Pemicu Utama */}
+      <Button 
+        variant="outline" 
+        size="sm" 
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "rounded-full px-4 h-9 font-medium shadow-sm transition-all border-border/60",
+          isOpen ? "bg-primary/10 text-primary border-primary/30" : "bg-card hover:bg-muted text-foreground",
+          isRecording && "bg-red-500/10 text-red-500 border-red-500/30 animate-pulse"
         )}
-
-        <Button variant="outline" size="sm" onClick={onOpenChat} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 shadow-sm whitespace-nowrap">
-          <MessageSquare className="w-3 h-3 mr-1.5" /> Tanya AI
-        </Button>
-        
-        {/* --- TOMBOL BARU: BIKIN KUIS FLASHCARD --- */}
-        {onGenerateFlashcards && (
-          <Button variant="outline" size="sm" onClick={onGenerateFlashcards} disabled={isGeneratingFlashcards || isContentEmpty} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20 shadow-sm whitespace-nowrap">
-            {isGeneratingFlashcards ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Brain className="w-3 h-3 mr-1.5" />} Bikin Kuis
-          </Button>
+      >
+        {anyLoading ? (
+          <Loader2 className="w-4 h-4 mr-2 animate-spin text-primary" />
+        ) : isRecording ? (
+          <div className="w-2 h-2 rounded-full bg-red-500 mr-2" />
+        ) : (
+          <Sparkles className="w-4 h-4 mr-2 text-purple-500" />
         )}
+        {isRecording ? "Merekam Suara..." : anyLoading ? "AI Bekerja..." : "Alat AI"}
+        {isOpen ? <ChevronUp className="w-3 h-3 ml-2 opacity-50" /> : <ChevronDown className="w-3 h-3 ml-2 opacity-50" />}
+      </Button>
 
-        <Button variant="outline" size="sm" onClick={onGenerateMindMap} disabled={isGeneratingMindMap || isContentEmpty} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 shadow-sm whitespace-nowrap">
-          {isGeneratingMindMap ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Network className="w-3 h-3 mr-1.5" />} Mind Map
-        </Button>
-        
-        <Button variant="outline" size="sm" onClick={onAutoFormat} disabled={isFormatting || isContentEmpty} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20 shadow-sm whitespace-nowrap">
-          {isFormatting ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1.5" />} Rapihkan
-        </Button>
-        
-        <Button variant="outline" size="sm" onClick={onGenerateTags} disabled={isGeneratingTags || isTitleAndContentEmpty} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-primary/10 text-primary border-primary/20 shadow-sm whitespace-nowrap">
-          {isGeneratingTags ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <TagIcon className="w-3 h-3 mr-1.5" />} Tebak Tag
-        </Button>
-        
-        <Button variant="outline" size="sm" onClick={onSummarize} disabled={isSummarizing || isTitleAndContentEmpty} className="flex-1 sm:flex-none rounded-xl bg-background/50 hover:bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 shadow-sm whitespace-nowrap">
-          {isSummarizing ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Wand2 className="w-3 h-3 mr-1.5" />} Ringkas Isi
-        </Button>
-      </div>
+      {/* Menu Dropdown Melayang */}
+      {isOpen && (
+        <div className="absolute right-0 md:left-0 md:right-auto mt-2 w-64 md:w-72 rounded-2xl bg-card border border-border shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 overflow-hidden flex flex-col">
+          
+          <div className="p-3 bg-muted/30 border-b border-border/50 flex items-center gap-2">
+            <Bot className="w-4 h-4 text-muted-foreground" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Tindakan AI Cerdas</span>
+          </div>
+
+          <div className="p-2 space-y-1 max-h-[60vh] overflow-y-auto custom-scrollbar">
+            
+            {/* Kategori 1: Dikte & Obrolan */}
+            <div className="px-2 pt-2 pb-1">
+              <p className="text-[10px] font-semibold text-muted-foreground/70 uppercase">Interaksi</p>
+            </div>
+            {onVoiceRecord && (
+              isRecording ? (
+                <button onClick={() => { onStopRecording?.(); setIsOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-red-500 bg-red-500/10 hover:bg-red-500/20 transition-colors text-left font-medium">
+                  <div className="w-4 h-4 rounded-full border-2 border-current flex items-center justify-center">
+                    <div className="w-1.5 h-1.5 bg-current rounded-sm" />
+                  </div>
+                  Hentikan Rekaman Suara
+                </button>
+              ) : (
+                <button onClick={() => { onVoiceRecord(); setIsOpen(false); }} disabled={isAnalyzingVoice} className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-foreground hover:bg-muted transition-colors text-left disabled:opacity-50">
+                  <Mic className="w-4 h-4 text-rose-500" /> Dikte dengan Suara
+                </button>
+              )
+            )}
+            <button onClick={() => { onOpenChat(); setIsOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-foreground hover:bg-muted transition-colors text-left">
+              <MessageSquare className="w-4 h-4 text-green-500" /> Tanya AI soal catatan ini
+            </button>
+
+            <div className="h-px bg-border/50 my-1 mx-2" />
+
+            {/* Kategori 2: Modifikasi Konten */}
+            <div className="px-2 pt-2 pb-1">
+              <p className="text-[10px] font-semibold text-muted-foreground/70 uppercase">Modifikasi Teks</p>
+            </div>
+            <button onClick={() => { onAutoFormat(); setIsOpen(false); }} disabled={isFormatting || isContentEmpty} className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-foreground hover:bg-muted transition-colors text-left disabled:opacity-50">
+              <Sparkles className="w-4 h-4 text-cyan-500" /> Rapihkan & Perbaiki Tata Bahasa
+            </button>
+            <button onClick={() => { onSummarize(); setIsOpen(false); }} disabled={isSummarizing || isTitleAndContentEmpty} className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-foreground hover:bg-muted transition-colors text-left disabled:opacity-50">
+              <Wand2 className="w-4 h-4 text-purple-500" /> Buat Ringkasan Eksekutif
+            </button>
+
+            <div className="h-px bg-border/50 my-1 mx-2" />
+
+            {/* Kategori 3: Analisis & Struktur */}
+            <div className="px-2 pt-2 pb-1">
+              <p className="text-[10px] font-semibold text-muted-foreground/70 uppercase">Analisis Data</p>
+            </div>
+            <button onClick={() => { onGenerateMindMap(); setIsOpen(false); }} disabled={isGeneratingMindMap || isContentEmpty} className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-foreground hover:bg-muted transition-colors text-left disabled:opacity-50">
+              <Network className="w-4 h-4 text-rose-400" /> Hasilkan Peta Konsep (Mindmap)
+            </button>
+            {onGenerateFlashcards && (
+              <button onClick={() => { onGenerateFlashcards(); setIsOpen(false); }} disabled={isGeneratingFlashcards || isContentEmpty} className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-foreground hover:bg-muted transition-colors text-left disabled:opacity-50">
+                <Brain className="w-4 h-4 text-indigo-500" /> Ekstrak Pertanyaan Kuis (Flashcard)
+              </button>
+            )}
+            <button onClick={() => { onGenerateTags(); setIsOpen(false); }} disabled={isGeneratingTags || isTitleAndContentEmpty} className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-foreground hover:bg-muted transition-colors text-left disabled:opacity-50">
+              <TagIcon className="w-4 h-4 text-primary" /> Tebak Label/Tags Otomatis
+            </button>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }

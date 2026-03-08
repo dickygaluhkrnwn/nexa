@@ -7,23 +7,27 @@ import {
   LockKeyhole, KeyRound, LayoutGrid, List, 
   ArrowDownAZ, ArrowDownZA, Clock, ArrowUpCircle, 
   Filter, Pin, MoreVertical, Network, 
-  ChevronRight, ChevronDown, CornerDownRight
+  ChevronRight, ChevronDown, CornerDownRight,
+  Edit3, X, FileEdit, Lock, ShieldCheck, Inbox
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { getUserNotes, deleteNote, updateNote, NoteData } from "@/lib/notes-service";
 import { getUserProfile } from "@/lib/user-service";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useModal } from "@/hooks/use-modal"; 
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"; 
+import { cn } from "@/lib/utils";
 
 type ExtNoteData = NoteData & { id: string; isHidden?: boolean; isPinned?: boolean; parentId?: string | null };
 type TreeNodeData = ExtNoteData & { depth: number; hasChildren: boolean };
 
-export default function NotesPage() {
+function NotesContent() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams(); 
   const { showAlert, showConfirm } = useModal(); 
+  
   const [notes, setNotes] = useState<ExtNoteData[]>([]);
   const [loadingNotes, setLoadingNotes] = useState(true);
   
@@ -34,17 +38,28 @@ export default function NotesPage() {
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "az" | "za">("newest");
   const [showSortMenu, setShowSortMenu] = useState(false);
 
-  // State Fitur Folder Tree
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
+  const [isDesktop, setIsDesktop] = useState(true);
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
 
-  // State Fitur Brankas
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const [pinInput, setPinInput] = useState("");
   const [showPinModal, setShowPinModal] = useState(false);
   const [correctPin, setCorrectPin] = useState<string | null>(null);
 
-  // State Options Menu
   const [activeNoteOptions, setActiveNoteOptions] = useState<ExtNoteData | null>(null);
+
+  useEffect(() => {
+    const q = searchParams?.get("q") || "";
+    setSearchQuery(q);
+  }, [searchParams]);
+
+  useEffect(() => {
+    const handleResize = () => setIsDesktop(window.innerWidth >= 1024);
+    handleResize(); 
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const fetchData = async () => {
     if (!user) return;
@@ -54,10 +69,7 @@ export default function NotesPage() {
         getUserProfile(user.uid)
       ]);
       setNotes(notesData as ExtNoteData[]);
-      
-      if (profileData?.pinCode) {
-        setCorrectPin(profileData.pinCode);
-      }
+      if (profileData?.pinCode) setCorrectPin(profileData.pinCode);
     } catch (error) {
       console.error("Gagal mengambil data:", error);
     } finally {
@@ -66,19 +78,17 @@ export default function NotesPage() {
   };
 
   useEffect(() => {
-    if (user) {
-      fetchData();
-    } else if (!authLoading) {
-      setLoadingNotes(false);
-    }
-  }, [user, authLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (user) fetchData();
+    else if (!authLoading) setLoadingNotes(false);
+  }, [user, authLoading]);
 
   const handleDelete = (id: string) => {
     showConfirm(
-      "Hapus Catatan?", 
-      "Apakah kamu yakin ingin menghapus catatan ini? Tindakan ini tidak dapat dibatalkan.", 
+      "Hapus Dokumen?", 
+      "Dokumen ini akan dihapus secara permanen. Lanjutkan?", 
       async () => {
         await deleteNote(id);
+        if (selectedNoteId === id) setSelectedNoteId(null);
         fetchData(); 
       }
     );
@@ -97,7 +107,7 @@ export default function NotesPage() {
 
   const handleUnlockVault = () => {
     if (!correctPin) {
-      showAlert("PIN Belum Diatur", "Kamu belum mengatur PIN Brankas. Silakan atur terlebih dahulu di halaman Profil!");
+      showAlert("PIN Belum Diatur", "Silakan atur PIN Brankas terlebih dahulu di halaman Profil.");
       setShowPinModal(false);
       return;
     }
@@ -106,8 +116,9 @@ export default function NotesPage() {
       setShowPinModal(false);
       setPinInput("");
       setSelectedTag(null);
+      setSelectedNoteId(null); 
     } else {
-      showAlert("Akses Ditolak", "PIN yang kamu masukkan salah!");
+      showAlert("Akses Ditolak", "PIN yang dimasukkan salah.");
       setPinInput("");
     }
   };
@@ -133,28 +144,29 @@ export default function NotesPage() {
     setActiveNoteOptions(note);
   };
 
-  const toggleExpand = (id: string) => {
-    setExpandedNodes(prev => ({ ...prev, [id]: !prev[id] }));
+  const toggleExpand = (id: string) => setExpandedNodes(prev => ({ ...prev, [id]: !prev[id] }));
+
+  const handleNoteClick = (id: string) => {
+    if (isDesktop) setSelectedNoteId(id);
+    else router.push(`/edit/${id}`);
   };
 
   if (authLoading || loadingNotes) {
-    return <div className="flex justify-center items-center min-h-[60vh]"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+    return <div className="flex justify-center items-center h-[calc(100vh-4rem)]"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   }
 
   if (!user) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-        <p className="text-muted-foreground">Silakan login untuk melihat catatan.</p>
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] gap-4">
+        <p className="text-muted-foreground">Silakan login untuk mengakses workspace.</p>
         <Button asChild><Link href="/">Kembali ke Home</Link></Button>
       </div>
     );
   }
 
-  // 1. Ekstrak Semua Tag Unik 
   const availableNotes = notes.filter(n => !n.isTodo && (isVaultOpen ? n.isHidden : !n.isHidden));
   const allTags = Array.from(new Set(availableNotes.flatMap(n => n.tags || [])));
 
-  // 2. Filter & Pencarian Dasar
   let displayedNotes = [...availableNotes].filter(note => {
     if (selectedTag && (!note.tags || !note.tags.includes(selectedTag))) return false;
     const query = searchQuery.toLowerCase();
@@ -169,11 +181,8 @@ export default function NotesPage() {
     return sorted;
   };
 
-  // 3. LOGIKA FOLDER TREE (REKURSIF)
   const generateTreeList = (notesList: ExtNoteData[]): TreeNodeData[] => {
     const flatList: TreeNodeData[] = [];
-    
-    // Akar (Root): Catatan yang tidak punya parentId, ATAU parentId-nya tidak ikut tersaring/tidak ada di notesList
     const roots = notesList.filter(n => !n.parentId || !notesList.some(parent => parent.id === n.parentId));
 
     const buildNode = (node: ExtNoteData, depth: number) => {
@@ -181,9 +190,7 @@ export default function NotesPage() {
       const hasChildren = children.length > 0;
       flatList.push({ ...node, depth, hasChildren });
 
-      // Auto-expand jika sedang mencari sesuatu, jika tidak ikuti state expandedNodes
       const isExpanded = expandedNodes[node.id] || searchQuery.trim() !== "";
-
       if (hasChildren && isExpanded) {
         const sortedChildren = applySort(children);
         sortedChildren.forEach(child => buildNode(child, depth + 1));
@@ -192,21 +199,23 @@ export default function NotesPage() {
 
     const sortedRoots = applySort(roots);
     sortedRoots.forEach(root => buildNode(root, 0));
-
     return flatList;
   };
 
-  // Pisahkan & Bangun Pohon untuk Pinned dan Unpinned
   const pinnedNotes = applySort(displayedNotes.filter(n => n.isPinned));
   const unpinnedNotes = applySort(displayedNotes.filter(n => !n.isPinned));
 
   const treePinnedNotes = generateTreeList(pinnedNotes);
   const treeUnpinnedNotes = generateTreeList(unpinnedNotes);
 
-  // 4. Render UI Kartu Catatan
+  const selectedNoteData = notes.find(n => n.id === selectedNoteId);
+
+  // Komponen Kartu Minimalis ala Sidebar Desktop
   const renderNoteCard = (note: TreeNodeData, index: number) => {
     const isSearching = searchQuery.trim() !== "";
     const isExpanded = expandedNodes[note.id] || isSearching;
+    const isSelected = selectedNoteId === note.id && isDesktop;
+    const plainText = note.content ? note.content.replace(/<[^>]*>?/gm, '').trim() : "";
 
     return (
       <Draggable key={note.id} draggableId={note.id} index={index}>
@@ -218,63 +227,52 @@ export default function NotesPage() {
             style={{
               ...provided.draggableProps.style,
               opacity: snapshot.isDragging ? 0.9 : 1,
-              transform: snapshot.isDragging ? `${provided.draggableProps.style?.transform} scale(1.02)` : provided.draggableProps.style?.transform,
-              // Indentasi Berdasarkan Kedalaman (Depth)
-              marginLeft: note.depth > 0 ? `${note.depth * (viewMode === 'grid' ? 1 : 2)}rem` : '0',
+              marginLeft: note.depth > 0 ? `${note.depth * (viewMode === 'grid' ? 1 : 1.25)}rem` : '0',
             }}
-            className={`relative group bg-card border rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 pointer-events-auto select-none ${
-              note.isPinned ? 'border-primary/50 shadow-sm' : (isVaultOpen ? 'border-purple-500/30 hover:border-purple-500/50' : 'border-border hover:border-primary/30')
-            } ${note.depth > 0 && viewMode === 'list' ? 'border-l-4 border-l-primary/30' : ''}`}
-            onClick={() => router.push(`/edit/${note.id}`)}
+            className={cn(
+              "group relative overflow-hidden transition-all duration-200 pointer-events-auto cursor-pointer select-none",
+              viewMode === 'list' ? "py-2 px-3 mx-2 rounded-lg" : "p-3 border rounded-xl shadow-sm",
+              isSelected ? "bg-primary/10 text-primary" : "hover:bg-muted/60 bg-transparent text-foreground",
+              viewMode === 'grid' && !isSelected ? "bg-card border-border" : "border-transparent",
+              snapshot.isDragging && "shadow-lg scale-105 bg-background border border-border"
+            )}
+            onClick={() => handleNoteClick(note.id)}
             onContextMenu={(e) => handleContextMenu(e, note)}
           >
-            <div className="block w-full h-full cursor-pointer p-4">
-              <div className="flex items-start justify-between gap-2">
-                
-                {/* Judul & Indikator Tree */}
-                <div className="flex items-start gap-2 overflow-hidden">
-                  {/* Tombol Expand/Collapse (Hanya jika punya anak) */}
-                  {note.hasChildren ? (
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); toggleExpand(note.id); }}
-                      className="mt-0.5 p-0.5 -ml-1 rounded-md hover:bg-muted text-muted-foreground transition-colors shrink-0"
-                      title={isExpanded ? "Tutup Sub-Catatan" : "Buka Sub-Catatan"}
-                    >
-                      {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                    </button>
-                  ) : note.depth > 0 ? (
-                    // Ikon siku untuk anak yang tidak punya anak lagi (opsional, untuk estetika list view)
-                    <CornerDownRight className="w-3.5 h-3.5 mt-1.5 text-muted-foreground/40 shrink-0" />
-                  ) : null}
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start gap-1.5 overflow-hidden flex-1">
+                {note.hasChildren ? (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); toggleExpand(note.id); }}
+                    className="mt-0.5 p-0.5 rounded-md hover:bg-muted/80 text-muted-foreground transition-colors shrink-0"
+                  >
+                    {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  </button>
+                ) : note.depth > 0 && viewMode === 'list' ? (
+                  <CornerDownRight className="w-3 h-3 mt-1 text-muted-foreground/40 shrink-0 ml-1" />
+                ) : (
+                  <FileText className={cn("w-3.5 h-3.5 mt-0.5 shrink-0", isSelected ? "text-primary" : "text-muted-foreground/60")} />
+                )}
 
-                  <h4 className={`font-bold text-foreground mb-1 flex items-start gap-2 line-clamp-2 ${viewMode === 'grid' ? 'text-sm' : 'text-base'}`}>
-                    {isVaultOpen && <LockKeyhole className="w-3.5 h-3.5 text-purple-500 shrink-0 mt-1" />}
+                <div className="flex flex-col min-w-0 flex-1">
+                  <h4 className={cn("font-medium truncate text-sm flex items-center gap-1.5", isSelected && "font-bold")}>
+                    {isVaultOpen && <LockKeyhole className="w-3 h-3 text-purple-500 shrink-0" />}
                     {note.title || "Tanpa Judul"}
                   </h4>
-                </div>
-
-                <button 
-                  onClick={(e) => { e.stopPropagation(); setActiveNoteOptions(note); }}
-                  className="p-1.5 -mr-2 -mt-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors shrink-0"
-                >
-                  <MoreVertical className="w-4 h-4" />
-                </button>
-              </div>
-              
-              {note.tags && note.tags.length > 0 && (
-                <div className={`flex flex-wrap gap-1.5 mt-2 ${note.hasChildren || note.depth > 0 ? 'ml-6' : ''}`}>
-                  {note.tags.slice(0, 3).map((tag, i) => (
-                    <span key={i} className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] rounded-md font-medium truncate max-w-full">
-                      #{tag}
-                    </span>
-                  ))}
-                  {note.tags.length > 3 && (
-                    <span className="px-1 py-0.5 text-muted-foreground text-[10px] font-medium">
-                      +{note.tags.length - 3}
-                    </span>
+                  {viewMode === 'list' && plainText && (
+                    <p className={cn("text-[11px] truncate mt-0.5", isSelected ? "text-primary/70" : "text-muted-foreground")}>
+                      {plainText}
+                    </p>
                   )}
                 </div>
-              )}
+              </div>
+
+              <button 
+                onClick={(e) => { e.stopPropagation(); setActiveNoteOptions(note); }}
+                className="p-1 text-muted-foreground hover:text-foreground rounded-md opacity-0 group-hover:opacity-100 lg:opacity-100 shrink-0"
+              >
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
         )}
@@ -283,198 +281,254 @@ export default function NotesPage() {
   };
 
   return (
-    <div className="p-4 pb-24 space-y-6 animate-in fade-in duration-500">
+    <div className="flex flex-col lg:flex-row h-screen lg:h-[calc(100vh-64px)] w-full overflow-hidden bg-background">
       
-      {/* Header Halaman */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-xl transition-colors ${isVaultOpen ? 'bg-purple-500/10' : 'bg-blue-500/10'}`}>
-            {isVaultOpen ? <LockKeyhole className="w-6 h-6 text-purple-500" /> : <FileText className="w-6 h-6 text-blue-500" />}
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">{isVaultOpen ? "Brankas Rahasia" : "Semua Catatan"}</h1>
-            <p className="text-sm text-muted-foreground">
-              {displayedNotes.length} catatan {selectedTag ? `berlabel #${selectedTag}` : "ditemukan"}
-            </p>
-          </div>
-        </div>
+      {/* =========================================
+          LEFT PANE: SIDEBAR LIST (MASTER VIEW)
+          ========================================= */}
+      <div className={cn(
+        "flex flex-col w-full lg:w-[320px] xl:w-[360px] h-full shrink-0 border-r border-border bg-[#fcfcfc] dark:bg-[#121212] transition-all",
+        selectedNoteId ? "hidden lg:flex" : "flex"
+      )}>
         
-        <Button 
-          variant={isVaultOpen ? "destructive" : "outline"} 
-          size="icon" 
-          className={`rounded-full shadow-sm transition-colors ${isVaultOpen ? "bg-purple-600 hover:bg-purple-700 text-white border-transparent" : ""}`}
-          onClick={() => {
-            if (isVaultOpen) {
-              setIsVaultOpen(false);
-              setSelectedTag(null);
-            } else {
-              setShowPinModal(true);
-            }
-          }}
-        >
-          {isVaultOpen ? <LockKeyhole className="w-4 h-4" /> : <KeyRound className="w-4 h-4" />}
-        </Button>
-      </div>
+        {/* Header Sidebar Kiri */}
+        <div className="px-4 py-4 shrink-0 flex flex-col gap-4 border-b border-border/50">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className={cn("p-1.5 rounded-md", isVaultOpen ? "bg-purple-500/10" : "bg-primary/10")}>
+                {isVaultOpen ? <ShieldCheck className="w-4 h-4 text-purple-600" /> : <Inbox className="w-4 h-4 text-primary" />}
+              </div>
+              <h1 className="text-sm font-bold tracking-tight">
+                {isVaultOpen ? "Brankas Rahasia" : "Semua Catatan"}
+              </h1>
+              <span className="text-[10px] font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full ml-1">
+                {displayedNotes.length}
+              </span>
+            </div>
+            
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className={cn("w-7 h-7 rounded-md", isVaultOpen ? "text-purple-600 hover:bg-purple-600/10" : "text-muted-foreground hover:bg-muted")}
+              onClick={() => {
+                if (isVaultOpen) { setIsVaultOpen(false); setSelectedTag(null); setSelectedNoteId(null); } 
+                else { setShowPinModal(true); }
+              }}
+              title={isVaultOpen ? "Tutup Brankas" : "Buka Brankas"}
+            >
+              {isVaultOpen ? <LockKeyhole className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+            </Button>
+          </div>
 
-      {/* Toolbar Premium: Search, Filter, Sort, View Mode, dan Graph */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          {/* Search Mobile (Hidden di Desktop karena ada Global Search di Header) */}
+          <div className="relative lg:hidden">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <input
               type="text"
               placeholder="Cari catatan..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-card border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all shadow-sm"
+              className="w-full pl-8 pr-3 py-1.5 bg-background border border-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all shadow-sm"
             />
           </div>
-          
-          <div className="relative">
-            <Button 
-              variant={sortBy !== "newest" ? "default" : "outline"}
-              size="icon" 
-              onClick={() => setShowSortMenu(!showSortMenu)}
-              className="rounded-xl shrink-0 transition-colors"
-            >
-              <Filter className="w-4 h-4" />
-            </Button>
-            
-            {showSortMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowSortMenu(false)}></div>
-                <div className="absolute right-0 top-full mt-2 w-48 bg-card border border-border rounded-xl shadow-lg z-50 p-1 animate-in fade-in slide-in-from-top-2">
-                  <p className="text-xs font-semibold text-muted-foreground px-3 py-2 uppercase tracking-wider">Urutkan</p>
-                  <button onClick={() => { setSortBy("newest"); setShowSortMenu(false); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-muted ${sortBy === 'newest' ? 'bg-primary/10 text-primary font-medium' : ''}`}>
-                    <Clock className="w-4 h-4" /> Terbaru
-                  </button>
-                  <button onClick={() => { setSortBy("oldest"); setShowSortMenu(false); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-muted ${sortBy === 'oldest' ? 'bg-primary/10 text-primary font-medium' : ''}`}>
-                    <ArrowUpCircle className="w-4 h-4" /> Terlama
-                  </button>
-                  <button onClick={() => { setSortBy("az"); setShowSortMenu(false); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-muted ${sortBy === 'az' ? 'bg-primary/10 text-primary font-medium' : ''}`}>
-                    <ArrowDownAZ className="w-4 h-4" /> Judul (A - Z)
-                  </button>
-                  <button onClick={() => { setSortBy("za"); setShowSortMenu(false); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-muted ${sortBy === 'za' ? 'bg-primary/10 text-primary font-medium' : ''}`}>
-                    <ArrowDownZA className="w-4 h-4" /> Judul (Z - A)
-                  </button>
-                </div>
-              </>
-            )}
+
+          {/* Quick Filters / Tags */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-1 items-center gap-1 overflow-x-auto scrollbar-hide snap-x">
+              <button
+                onClick={() => setSelectedTag(null)}
+                className={cn(
+                  "snap-start whitespace-nowrap px-2.5 py-1 text-[10px] font-semibold rounded-md border transition-colors",
+                  selectedTag === null ? "bg-primary/10 border-primary/20 text-primary" : "bg-background border-border text-muted-foreground hover:bg-muted"
+                )}
+              >
+                Semua
+              </button>
+              {allTags.map(tag => (
+                <button
+                  key={tag}
+                  onClick={() => setSelectedTag(tag)}
+                  className={cn(
+                    "snap-start whitespace-nowrap px-2.5 py-1 text-[10px] font-semibold rounded-md border transition-colors",
+                    selectedTag === tag ? "bg-primary/10 border-primary/20 text-primary" : "bg-background border-border text-muted-foreground hover:bg-muted"
+                  )}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+
+            {/* Sort & View Toggles */}
+            <div className="flex items-center gap-0.5 shrink-0">
+              <div className="relative">
+                <Button variant="ghost" size="icon" onClick={() => setShowSortMenu(!showSortMenu)} className="w-6 h-6 rounded text-muted-foreground hover:text-foreground">
+                  <Filter className="w-3.5 h-3.5" />
+                </Button>
+                {showSortMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowSortMenu(false)}></div>
+                    <div className="absolute right-0 top-full mt-1 w-40 bg-card border border-border shadow-lg rounded-xl z-50 p-1 animate-in zoom-in-95">
+                      <button onClick={() => { setSortBy("newest"); setShowSortMenu(false); }} className={cn("w-full text-left px-3 py-1.5 text-xs rounded-md", sortBy === 'newest' ? 'bg-primary/10 text-primary font-bold' : 'hover:bg-muted')}>Terbaru</button>
+                      <button onClick={() => { setSortBy("oldest"); setShowSortMenu(false); }} className={cn("w-full text-left px-3 py-1.5 text-xs rounded-md", sortBy === 'oldest' ? 'bg-primary/10 text-primary font-bold' : 'hover:bg-muted')}>Terlama</button>
+                      <button onClick={() => { setSortBy("az"); setShowSortMenu(false); }} className={cn("w-full text-left px-3 py-1.5 text-xs rounded-md", sortBy === 'az' ? 'bg-primary/10 text-primary font-bold' : 'hover:bg-muted')}>A - Z</button>
+                    </div>
+                  </>
+                )}
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")} className="w-6 h-6 rounded text-muted-foreground hover:text-foreground lg:hidden">
+                {viewMode === "grid" ? <List className="w-3.5 h-3.5" /> : <LayoutGrid className="w-3.5 h-3.5" />}
+              </Button>
+            </div>
           </div>
-
-          <Button 
-            variant="outline" 
-            size="icon" 
-            onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}
-            className="rounded-xl shrink-0 bg-card"
-          >
-            {viewMode === "grid" ? <List className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
-          </Button>
-
-          {/* Tombol Peta Semesta */}
-          <Button 
-            asChild
-            variant="outline" 
-            className="rounded-xl px-3 md:px-4 bg-gradient-to-r from-rose-500/10 to-purple-500/10 text-rose-500 border-rose-500/20 hover:border-rose-500/50 hover:from-rose-500/20 hover:to-purple-500/20 transition-all shadow-sm relative overflow-hidden group shrink-0"
-          >
-            <Link href="/network" title="Lihat Peta Semesta">
-              <Network className="w-4 h-4 relative z-10 md:mr-2" />
-              <span className="hidden md:inline font-bold text-xs relative z-10">Peta Semesta</span>
-            </Link>
-          </Button>
         </div>
 
-        {allTags.length > 0 && (
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide snap-x">
-            <button
-              onClick={() => setSelectedTag(null)}
-              className={`snap-start whitespace-nowrap px-4 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-                selectedTag === null ? "bg-primary text-primary-foreground border-primary" : "bg-card text-muted-foreground border-border hover:bg-muted"
-              }`}
-            >
-              Semua
-            </button>
-            {allTags.map(tag => (
-              <button
-                key={tag}
-                onClick={() => setSelectedTag(tag)}
-                className={`snap-start whitespace-nowrap px-4 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-                  selectedTag === tag ? "bg-primary text-primary-foreground border-primary" : "bg-card text-muted-foreground border-border hover:bg-muted"
-                }`}
-              >
-                #{tag}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Scrollable Note List */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar py-2">
+          {displayedNotes.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-6 opacity-60">
+              <FileText className="w-10 h-10 mb-3 text-muted-foreground" />
+              <p className="text-sm font-medium text-foreground">Kosong</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {searchQuery || selectedTag ? "Tidak ada yang cocok." : "Belum ada dokumen dibuat."}
+              </p>
+            </div>
+          ) : (
+            <DragDropContext onDragEnd={onDragEnd}>
+              <div className="flex flex-col gap-4 pb-20 lg:pb-6">
+                
+                {treePinnedNotes.length > 0 && (
+                  <Droppable droppableId="pinned">
+                    {(provided) => (
+                      <div ref={provided.innerRef} {...provided.droppableProps}>
+                        <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-5 mb-1.5">Disematkan</h3>
+                        <div className={cn("gap-1", isDesktop ? "flex flex-col" : (viewMode === "grid" ? "grid grid-cols-2 px-3" : "flex flex-col"))}>
+                          {treePinnedNotes.map((note, index) => renderNoteCard(note, index))}
+                        </div>
+                        {provided.placeholder}
+                      </div>
+                    )}
+                  </Droppable>
+                )}
+
+                {treeUnpinnedNotes.length > 0 && (
+                  <Droppable droppableId="unpinned">
+                    {(provided) => (
+                      <div ref={provided.innerRef} {...provided.droppableProps}>
+                        {treePinnedNotes.length > 0 && <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-5 mb-1.5 mt-2">Lainnya</h3>}
+                        <div className={cn("gap-1", isDesktop ? "flex flex-col" : (viewMode === "grid" ? "grid grid-cols-2 px-3" : "flex flex-col"))}>
+                          {treeUnpinnedNotes.map((note, index) => renderNoteCard(note, index))}
+                        </div>
+                        {provided.placeholder}
+                      </div>
+                    )}
+                  </Droppable>
+                )}
+
+              </div>
+            </DragDropContext>
+          )}
+        </div>
       </div>
 
-      {/* Daftar Catatan (Drag & Drop) */}
-      {displayedNotes.length === 0 ? (
-        <div className="text-center py-16 px-4 border border-dashed border-border rounded-2xl bg-muted/20 flex flex-col items-center">
-          <FileText className="w-12 h-12 text-muted-foreground/30 mb-4" />
-          <p className="text-muted-foreground mb-6">
-            {searchQuery || selectedTag 
-              ? "Tidak ada catatan yang cocok dengan filter ini." 
-              : isVaultOpen 
-                ? "Brankas kamu masih kosong." 
-                : "Belum ada catatan publik."}
-          </p>
-          <Button asChild variant="default" className="rounded-full shadow-md">
-            <Link href="/create">Tulis Catatan Baru</Link>
-          </Button>
-        </div>
-      ) : (
-        <DragDropContext onDragEnd={onDragEnd}>
-          <div className="space-y-6">
-            
-            {/* AREA CATATAN DISEMATKAN */}
-            {treePinnedNotes.length > 0 && (
-              <Droppable droppableId="pinned">
-                {(provided, snapshot) => (
-                  <div 
-                    ref={provided.innerRef} 
-                    {...provided.droppableProps} 
-                    className={`transition-all duration-200 ${snapshot.isDraggingOver ? 'bg-primary/5 p-3 -mx-3 rounded-2xl' : ''}`}
-                  >
-                    <h2 className="text-sm font-bold text-primary flex items-center gap-2 mb-3"><Pin className="w-4 h-4 fill-primary" /> Disematkan ({treePinnedNotes.length})</h2>
-                    <div className={viewMode === "grid" ? "grid grid-cols-2 gap-3" : "flex flex-col gap-3"}>
-                      {treePinnedNotes.map((note, index) => renderNoteCard(note, index))}
-                    </div>
-                    {provided.placeholder}
-                  </div>
-                )}
-              </Droppable>
-            )}
-
-            {/* AREA CATATAN LAINNYA */}
-            {treeUnpinnedNotes.length > 0 && (
-              <Droppable droppableId="unpinned">
-                {(provided, snapshot) => (
-                  <div 
-                    ref={provided.innerRef} 
-                    {...provided.droppableProps} 
-                    className={`transition-all duration-200 ${snapshot.isDraggingOver ? 'bg-muted/30 p-3 -mx-3 rounded-2xl' : ''}`}
-                  >
-                    {treePinnedNotes.length > 0 && <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2 mb-3 mt-2">Catatan Lainnya</h2>}
-                    <div className={viewMode === "grid" ? "grid grid-cols-2 gap-3" : "flex flex-col gap-3"}>
-                      {treeUnpinnedNotes.map((note, index) => renderNoteCard(note, index))}
-                    </div>
-                    {provided.placeholder}
-                  </div>
-                )}
-              </Droppable>
-            )}
-
+      {/* =========================================
+          RIGHT PANE: DETAIL / READING VIEW (DESKTOP)
+          ========================================= */}
+      <div className={cn(
+        "hidden lg:flex flex-1 flex-col h-full bg-background relative",
+        !selectedNoteId && "items-center justify-center bg-muted/10"
+      )}>
+        {!selectedNoteId ? (
+          // Empty State Reading View
+          <div className="flex flex-col items-center text-center max-w-sm animate-in zoom-in-95 duration-500 opacity-60">
+            <div className="w-20 h-20 mb-6 rounded-2xl bg-card border border-border flex items-center justify-center shadow-sm">
+              <FileEdit className="w-8 h-8 text-muted-foreground" />
+            </div>
+            <h2 className="text-xl font-bold tracking-tight mb-2 text-foreground">Pilih Dokumen</h2>
+            <p className="text-muted-foreground text-sm">
+              Klik salah satu catatan di bilah kiri untuk membacanya, atau buat dokumen baru untuk memulai.
+            </p>
+            <Button asChild className="mt-6 rounded-lg shadow-sm font-medium h-9">
+              <Link href="/create"><Edit3 className="w-4 h-4 mr-2" /> Tulis Baru</Link>
+            </Button>
           </div>
-        </DragDropContext>
-      )}
+        ) : selectedNoteData ? (
+          // Active Reading View
+          <div className="flex flex-col h-full w-full animate-in fade-in duration-300">
+            
+            {/* Top Action Bar */}
+            <div className="flex items-center justify-between px-8 py-4 border-b border-border/30 bg-background/95 backdrop-blur-sm z-10 shrink-0">
+              <div className="flex items-center gap-3">
+                <Button variant="ghost" size="icon" className="lg:hidden -ml-2" onClick={() => setSelectedNoteId(null)}>
+                  <X className="w-5 h-5" />
+                </Button>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
+                  <span className="hover:text-foreground cursor-pointer transition-colors" onClick={() => setSelectedNoteId(null)}>Workspace</span>
+                  <ChevronRight className="w-3 h-3" />
+                  <span className="text-foreground truncate max-w-[200px]">{selectedNoteData.title || "Tanpa Judul"}</span>
+                </div>
+              </div>
 
-      {/* --- OVERLAY MENU OPSI CATATAN --- */}
+              <div className="flex items-center gap-1.5">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className={cn("h-8 rounded-md text-xs font-semibold", selectedNoteData.isPinned ? "text-primary bg-primary/10" : "text-muted-foreground hover:bg-muted")}
+                  onClick={() => handleTogglePin(selectedNoteData.id, selectedNoteData.isPinned)}
+                >
+                  <Pin className={cn("w-3.5 h-3.5 mr-1.5", selectedNoteData.isPinned && "fill-primary")} />
+                  {selectedNoteData.isPinned ? "Tersemat" : "Sematkan"}
+                </Button>
+                <div className="w-px h-4 bg-border mx-1" />
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-8 rounded-md text-xs font-semibold text-destructive hover:bg-destructive/10"
+                  onClick={() => handleDelete(selectedNoteData.id)}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+                <Button asChild className="h-8 rounded-md text-xs font-semibold ml-1 shadow-sm">
+                  <Link href={`/edit/${selectedNoteData.id}`}><Edit3 className="w-3.5 h-3.5 mr-1.5" /> Edit Dokumen</Link>
+                </Button>
+              </div>
+            </div>
+
+            {/* Reading Content Area */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-8 md:px-16 py-10 lg:py-16">
+              <div className="max-w-3xl mx-auto">
+                <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-6 text-foreground leading-tight">
+                  {selectedNoteData.title || "Tanpa Judul"}
+                </h1>
+                
+                {selectedNoteData.tags && selectedNoteData.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-10">
+                    {selectedNoteData.tags.map(tag => (
+                      <span key={tag} className="px-2.5 py-1 bg-muted/60 text-muted-foreground text-xs font-semibold rounded-md border border-border/50">
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Konten HTML dari Tiptap (Distraction Free Reading) */}
+                <div 
+                  className="prose prose-sm md:prose-base lg:prose-lg dark:prose-invert max-w-none text-foreground/90 leading-relaxed marker:text-primary prose-headings:font-bold prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-p:mb-6 prose-ul:mb-6 prose-ol:mb-6 prose-li:my-1"
+                  dangerouslySetInnerHTML={{ 
+                    __html: selectedNoteData.content || '<p class="text-muted-foreground italic">Dokumen ini kosong. Klik Edit Dokumen untuk mulai menulis.</p>' 
+                  }}
+                />
+              </div>
+            </div>
+            
+          </div>
+        ) : null}
+      </div>
+
+      {/* --- OVERLAY MENU OPSI CATATAN (MOBILE ONLY) --- */}
       {activeNoteOptions && (
         <>
-          <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm" onClick={() => setActiveNoteOptions(null)}></div>
-          <div className="fixed inset-x-0 bottom-0 z-[110] p-4 flex justify-center animate-in slide-in-from-bottom-8 duration-300 pointer-events-none">
+          <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm lg:hidden" onClick={() => setActiveNoteOptions(null)}></div>
+          <div className="fixed inset-x-0 bottom-0 z-[110] p-4 flex justify-center animate-in slide-in-from-bottom-8 duration-300 pointer-events-none lg:hidden">
             <div className="bg-card border border-border w-full max-w-sm rounded-[2rem] p-5 shadow-2xl pointer-events-auto">
               <div className="w-12 h-1.5 bg-muted rounded-full mx-auto mb-5" />
               <h3 className="font-bold text-lg mb-4 text-center truncate px-2">{activeNoteOptions.title || "Tanpa Judul"}</h3>
@@ -491,7 +545,6 @@ export default function NotesPage() {
                   <Pin className={`w-5 h-5 mr-3 ${activeNoteOptions.isPinned ? "fill-primary text-primary" : "text-muted-foreground"}`} />
                   {activeNoteOptions.isPinned ? "Lepaskan Sematan" : "Sematkan Catatan"}
                 </Button>
-
                 <Button 
                   variant="outline" 
                   className="w-full justify-start h-14 rounded-xl text-base text-destructive hover:bg-destructive/10 hover:text-destructive border-border"
@@ -500,15 +553,9 @@ export default function NotesPage() {
                     handleDelete(activeNoteOptions.id);
                   }}
                 >
-                  <Trash2 className="w-5 h-5 mr-3" />
-                  Hapus Catatan
+                  <Trash2 className="w-5 h-5 mr-3" /> Hapus
                 </Button>
-
-                <Button 
-                  variant="secondary" 
-                  className="w-full h-14 rounded-xl text-base mt-2 font-bold"
-                  onClick={() => setActiveNoteOptions(null)}
-                >
+                <Button variant="secondary" className="w-full h-14 rounded-xl text-base mt-2 font-bold" onClick={() => setActiveNoteOptions(null)}>
                   Batal
                 </Button>
               </div>
@@ -519,11 +566,12 @@ export default function NotesPage() {
 
       {/* Modal Input PIN untuk Brankas */}
       {showPinModal && (
-        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 text-center">
-            <LockKeyhole className="w-12 h-12 text-purple-500 mx-auto mb-4" />
-            <h3 className="font-bold text-xl mb-1">Akses Brankas</h3>
-            <p className="text-sm text-muted-foreground mb-6">Masukkan 4 digit PIN kamu</p>
+        <div className="fixed inset-0 z-[100] bg-background/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-card border border-border/50 p-8 rounded-[2rem] shadow-2xl w-full max-w-sm animate-in zoom-in-95 text-center relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-purple-500 to-indigo-500" />
+            <LockKeyhole className="w-12 h-12 text-purple-500 mx-auto mb-5 drop-shadow-sm" />
+            <h3 className="font-bold text-2xl mb-2">Akses Brankas</h3>
+            <p className="text-sm text-muted-foreground mb-8">Masukkan 4 digit PIN keamananmu</p>
             
             <input 
               type="password" 
@@ -531,17 +579,26 @@ export default function NotesPage() {
               autoFocus 
               value={pinInput} 
               onChange={(e) => setPinInput(e.target.value.replace(/[^0-9]/g, ''))} 
-              className="w-full bg-background px-4 py-3 text-center tracking-[1em] text-2xl font-bold rounded-xl outline-none focus:ring-2 focus:ring-purple-500/50 mb-6 border border-border shadow-inner" 
+              className="w-full bg-muted/50 px-4 py-4 text-center tracking-[1em] text-3xl font-black rounded-2xl outline-none focus:ring-4 focus:ring-purple-500/20 mb-8 border border-transparent focus:border-purple-500/30 transition-all shadow-inner" 
             />
             
             <div className="flex gap-3">
-              <Button variant="outline" className="flex-1 rounded-xl h-11" onClick={() => { setShowPinModal(false); setPinInput(""); }}>Batal</Button>
-              <Button className="flex-1 rounded-xl bg-purple-600 hover:bg-purple-700 text-white shadow-md h-11" onClick={handleUnlockVault} disabled={pinInput.length !== 4}>Buka</Button>
+              <Button variant="outline" className="flex-1 rounded-xl h-12 font-bold" onClick={() => { setShowPinModal(false); setPinInput(""); }}>Batal</Button>
+              <Button className="flex-1 rounded-xl bg-purple-600 hover:bg-purple-700 text-white shadow-md h-12 font-bold transition-all" onClick={handleUnlockVault} disabled={pinInput.length !== 4}>Buka</Button>
             </div>
           </div>
         </div>
       )}
 
     </div>
+  );
+}
+
+// Wrapper Suspense: WAJIB untuk komponen Next.js (App Router) yang menggunakan useSearchParams
+export default function NotesPage() {
+  return (
+    <Suspense fallback={<div className="flex justify-center items-center h-screen"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>}>
+      <NotesContent />
+    </Suspense>
   );
 }
