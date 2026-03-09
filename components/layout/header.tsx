@@ -2,7 +2,7 @@
 
 import { 
   Moon, Sun, Menu, X, Settings, Download, LogOut, LogIn,
-  Heart, Info, MessageSquareQuote, 
+  Heart, Info, MessageSquareQuote, ShieldCheck, Smartphone, // Tambah ikon baru
   Bell, BellRing, CalendarClock, AlertTriangle, Check,
   Search, User, SlidersHorizontal
 } from "lucide-react";
@@ -27,14 +27,12 @@ interface NotificationItem {
 }
 
 // --- KOMPONEN PENCARIAN TERISOLASI DENGAN SUSPENSE ---
-// Untuk menghindari Error Next.js "Missing Suspense boundary with useSearchParams" saat Build
 function SearchBar() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [searchValue, setSearchValue] = useState("");
 
-  // Sinkronisasi nilai input dengan URL parameter
   useEffect(() => {
     const q = searchParams?.get("q") || "";
     setSearchValue(q);
@@ -44,7 +42,6 @@ function SearchBar() {
     const val = e.target.value;
     setSearchValue(val);
     
-    // Update URL Parameters secara real-time
     const params = new URLSearchParams(searchParams?.toString() || "");
     if (val) {
       params.set("q", val);
@@ -81,17 +78,14 @@ export function Header() {
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   
-  // --- STATE NOTIFIKASI ---
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [readNotifs, setReadNotifs] = useState<string[]>([]); 
   const [pushPermission, setPushPermission] = useState<NotificationPermission | "default">("default");
 
-  // State untuk mendeteksi arah scroll
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
-  // State untuk PWA Install Prompt
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
@@ -416,7 +410,7 @@ export function Header() {
                 )}
               </div>
 
-              <div className="overflow-y-auto">
+              <div className="overflow-y-auto custom-scrollbar">
                 {notifications.length === 0 ? (
                   <div className="p-8 text-center text-muted-foreground flex flex-col items-center">
                     <Check className="w-8 h-8 mb-2 opacity-20" />
@@ -462,24 +456,27 @@ export function Header() {
           </>
         )}
 
-        {/* PANEL MENU DROPDOWN (PENGATURAN) */}
+        {/* PANEL MENU DROPDOWN (PENGATURAN & LINK) */}
         {isMenuOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)}></div>
-            <div className="absolute top-16 right-4 md:right-6 mt-2 w-56 rounded-2xl border border-border/60 bg-background/95 backdrop-blur-xl shadow-2xl py-2 animate-in fade-in slide-in-from-top-2 z-50 overflow-hidden">
+            <div className="absolute top-16 right-4 md:right-6 mt-2 w-64 rounded-2xl border border-border/60 bg-background/95 backdrop-blur-xl shadow-2xl py-2 animate-in fade-in slide-in-from-top-2 z-50 overflow-hidden">
+              
+              {/* Info Pengguna */}
               <div className="px-4 py-3 border-b border-border/50 mb-1 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white flex items-center justify-center shadow-sm overflow-hidden shrink-0">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white flex items-center justify-center shadow-sm overflow-hidden shrink-0">
                   {user?.isAnonymous ? <User className="w-4 h-4" /> : <img src={user?.photoURL || `https://ui-avatars.com/api/?name=${user?.displayName || 'User'}`} alt="Profile" className="w-full h-full object-cover" />}
                 </div>
-                <div className="flex flex-col">
-                  <p className="text-sm font-bold text-foreground truncate max-w-[120px]">{user?.isAnonymous ? "Pengguna Tamu" : (user?.displayName || "Pengguna Nexa")}</p>
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Pengaturan</p>
+                <div className="flex flex-col min-w-0">
+                  <p className="text-sm font-bold text-foreground truncate">{user?.isAnonymous ? "Pengguna Tamu" : (user?.displayName || "Pengguna Nexa")}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Pengaturan Akun</p>
                 </div>
               </div>
               
+              {/* Mode Terang/Gelap */}
               <button
                 onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-                className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium"
+                className="w-full flex items-center px-4 py-2.5 text-sm hover:bg-muted transition-colors font-medium"
               >
                 {mounted && theme === "dark" ? (
                   <><Sun className="h-4 w-4 mr-3 text-orange-400" /><span>Mode Terang</span></>
@@ -488,41 +485,61 @@ export function Header() {
                 )}
               </button>
 
+              <div className="h-px bg-border/50 my-1" />
+
+              {/* Link Navigasi Tambahan */}
               <Link href="/about" onClick={() => setIsMenuOpen(false)}>
-                <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium border-t border-border/30">
+                <div className="w-full flex items-center px-4 py-2.5 text-sm hover:bg-muted transition-colors font-medium">
                   <Info className="h-4 w-4 mr-3 text-blue-500" /><span>Tentang Aplikasi</span>
                 </div>
               </Link>
 
+              <Link href="/privacy-policy" onClick={() => setIsMenuOpen(false)}>
+                <div className="w-full flex items-center px-4 py-2.5 text-sm hover:bg-muted transition-colors font-medium">
+                  <ShieldCheck className="h-4 w-4 mr-3 text-emerald-500" /><span>Kebijakan Privasi</span>
+                </div>
+              </Link>
+
               <Link href="/feedback" onClick={() => setIsMenuOpen(false)}>
-                <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors font-medium border-t border-border/30">
+                <div className="w-full flex items-center px-4 py-2.5 text-sm hover:bg-muted transition-colors font-medium">
                   <MessageSquareQuote className="h-4 w-4 mr-3 text-green-500" /><span>Kirim Masukan</span>
                 </div>
               </Link>
 
               <Link href="/funding" onClick={() => setIsMenuOpen(false)}>
-                <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-rose-500/10 transition-colors text-rose-500 font-bold border-t border-border/30">
+                <div className="w-full flex items-center px-4 py-2.5 text-sm hover:bg-rose-500/10 transition-colors text-rose-500 font-bold">
                   <Heart className="h-4 w-4 mr-3 fill-rose-500 animate-pulse" /><span>Dukung Nexa</span>
                 </div>
               </Link>
 
+              {/* Tombol Download APK (Baru) */}
+              <Link href="/download" onClick={() => setIsMenuOpen(false)}>
+                <div className="w-full flex items-center px-4 py-2.5 text-sm hover:bg-primary/10 transition-colors text-primary font-bold">
+                  <Smartphone className="h-4 w-4 mr-3" /><span>Download APK</span>
+                </div>
+              </Link>
+
               {deferredPrompt && (
-                <button onClick={handleInstallClick} className="w-full flex items-center px-4 py-3 text-sm hover:bg-muted transition-colors text-primary font-medium border-t border-border/30">
-                  <Download className="h-4 w-4 mr-3" /><span>Unduh Aplikasi</span>
+                <button onClick={handleInstallClick} className="w-full flex items-center px-4 py-2.5 text-sm hover:bg-muted transition-colors font-medium">
+                  <Download className="h-4 w-4 mr-3" /><span>Unduh PWA</span>
                 </button>
               )}
 
+              <div className="h-px bg-border/50 my-1" />
+
+              {/* Autentikasi */}
               {user && !user.isAnonymous ? (
-                <button onClick={handleLogout} className="w-full flex items-center px-4 py-3 text-sm hover:bg-destructive/10 transition-colors text-destructive font-medium border-t border-border/30">
+                <button onClick={handleLogout} className="w-full flex items-center px-4 py-2.5 text-sm hover:bg-destructive/10 transition-colors text-destructive font-bold">
                   <LogOut className="h-4 w-4 mr-3" /><span>Keluar Akun</span>
                 </button>
               ) : (
                 <Link href="/profile" onClick={() => setIsMenuOpen(false)}>
-                  <div className="w-full flex items-center px-4 py-3 text-sm hover:bg-primary/10 transition-colors text-primary font-medium border-t border-border/30">
+                  <div className="w-full flex items-center px-4 py-2.5 text-sm hover:bg-primary/10 transition-colors text-primary font-bold">
                     <LogIn className="h-4 w-4 mr-3" /><span>Masuk / Daftar</span>
                   </div>
                 </Link>
               )}
+
             </div>
           </>
         )}
